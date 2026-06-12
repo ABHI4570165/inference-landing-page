@@ -169,14 +169,14 @@ function FooterInline() {
         <div className="flex flex-col sm:flex-row items-center justify-between gap-2 text-sm">
           <div className="text-center sm:text-left">
             <p className="font-heading font-bold text-sm">Mandi Hariyaanna Academy</p>
-            <p className="text-brand-300 text-xs mt-0.5">Empowering students since 2010</p>
+            <p className="text-brand-300 text-xs mt-0.5">Mandi Harish Foundation®</p>
           </div>
           <div className="text-brand-300 text-xs text-center">
             <p>© {new Date().getFullYear()} All rights reserved.</p>
             <p className="mt-0.5">
               For queries:{' '}
-              <a href="mailto:careers@mandihariyaanna.com" className="underline hover:text-white">
-                careers@mandihariyaanna.com
+              <a href="mailto:mhskill2024.com" className="underline hover:text-white">
+                mhskill2024@gmail.com
               </a>
             </p>
           </div>
