@@ -35,7 +35,7 @@ export default function AdminLogin() {
             <span className="text-white font-bold text-2xl font-heading">M</span>
           </div>
           <h1 className="font-heading text-2xl font-bold text-gray-800">Admin Login</h1>
-          <p className="text-gray-500 text-sm mt-1">Mandi Hariyaanna Portal</p>
+          <p className="text-gray-500 text-sm mt-1">Mandi Hariyanna Portal</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">

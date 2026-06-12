@@ -6,9 +6,9 @@ export default function Header() {
         {/* Desktop layout: logo left | title centre | logo right */}
         <div className="hidden sm:flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 flex-shrink-0">
-            <img src="/mandi-logo.png" alt="Mandi Hariyaanna Academy" className="w-12 h-12 object-contain rounded-full" />
+            <img src="/mandi-logo.png" alt="Mandi Hariyanna Academy" className="w-12 h-12 object-contain rounded-full" />
             <div>
-              <h1 className="font-heading text-base font-bold text-brand-800 leading-tight">Mandi Hariyaanna</h1>
+              <h1 className="font-heading text-base font-bold text-brand-800 leading-tight">Mandi Hariyanna</h1>
               <p className="text-xs text-gray-500">MANDI HARISH FOUNDATION®</p>
             </div>
           </div>
@@ -24,9 +24,9 @@ export default function Header() {
         <div className="flex flex-col items-center gap-2 sm:hidden">
           {/* Row 1: Mandi logo + name */}
           <div className="flex items-center gap-3">
-            <img src="/mandi-logo.png" alt="Mandi Hariyaanna Academy" className="w-10 h-10 object-contain rounded-full" />
+            <img src="/mandi-logo.png" alt="Mandi Hariyanna Academy" className="w-10 h-10 object-contain rounded-full" />
             <div>
-              <h1 className="font-heading text-sm font-bold text-brand-800 leading-tight">Mandi Hariyaanna</h1>
+              <h1 className="font-heading text-sm font-bold text-brand-800 leading-tight">Mandi Hariyanna</h1>
               <p className="text-xs text-gray-500">MANDI HARISH FOUNDATION®</p>
             </div>
           </div>

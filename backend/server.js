@@ -90,7 +90,7 @@ app.use('/api/colleges', require('./routes/colleges'));
 
 // Health check
 app.get('/', (req, res) =>
-  res.json({ message: 'Mandi Hariyaanna Portal API is running' })
+  res.json({ message: 'Mandi Hariyanna Portal API is running' })
 );
 
 // Global error handler — ensures all uncaught errors return JSON

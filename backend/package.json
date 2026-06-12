@@ -1,7 +1,7 @@
 {
   "name": "mandi-portal-backend",
   "version": "1.0.0",
-  "description": "Mandi Hariyaanna Academy Student Hiring Portal - Backend",
+  "description": "Mandi Hariyanna Academy Student Hiring Portal - Backend",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
