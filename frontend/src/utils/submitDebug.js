@@ -25,9 +25,12 @@ export function logSubmissionAttempt(formName, form) {
 }
 
 // Log full error diagnostics and return the message to show the applicant.
-export function parseSubmitError(err, formName) {
+// `resumeFile` (optional) is the picked resume File — included in the
+// temporary on-screen diagnostics for failures that never reach the server.
+export function parseSubmitError(err, formName, resumeFile = null) {
   const status = err.response?.status ?? null
   const data   = err.response?.data ?? null
+  const requestUrl = [err.config?.baseURL, err.config?.url].filter(Boolean).join('')
 
   // ── Console diagnostics ──
   if (DEV) {
@@ -36,6 +39,7 @@ export function parseSubmitError(err, formName) {
     console.error('Error message:', err.message)
     console.error('HTTP status:', status ?? 'no response (network error)')
     console.error('Backend response data:', data)
+    console.error('Request URL:', requestUrl)
     if (!err.response) {
       console.error('Network error details:', { code: err.code, browserOnline: navigator.onLine })
     }
@@ -45,19 +49,36 @@ export function parseSubmitError(err, formName) {
     console.error(`[${formName}] Submission failed`, {
       status,
       code: err.code,
-      message: data?.message || err.message
+      message: data?.message || err.message,
+      url: requestUrl,
+      online: navigator.onLine,
+      userAgent: navigator.userAgent,
+      fileName: resumeFile?.name,
+      fileSize: resumeFile?.size,
+      fileType: resumeFile?.type
     })
   }
+
+  // ── TEMPORARY on-screen diagnostics ──
+  // Shown only when the request never reached the server, so an affected
+  // applicant can send a screenshot. Remove once the Android issue is closed.
+  const diagnostics = () =>
+    ' — Diagnostic info (please screenshot this): ' +
+    `error: ${err.message} • code: ${err.code || 'n/a'} • online: ${navigator.onLine} • ` +
+    `file: ${resumeFile?.name || 'none'} (${resumeFile?.size ?? 0} bytes, ${resumeFile?.type || 'unknown type'}) • ` +
+    `device: ${navigator.userAgent}`
 
   // ── User-facing message ──
   // Upload exceeded the client timeout — slow connection, not a server fault
   if (err.code === 'ECONNABORTED' || err.code === 'ETIMEDOUT') {
-    return 'The upload is taking too long — your connection may be slow. Please move to a stronger network or Wi-Fi and try again.'
+    return 'The upload is taking too long — your connection may be slow. Please move to a stronger network or Wi-Fi and try again.' + diagnostics()
   }
 
-  // Request never reached the server (offline, DNS, CORS, server down)
+  // Request never reached the server (offline, DNS, CORS, server down, or the
+  // browser aborted the upload because the picked file became unreadable —
+  // net::ERR_UPLOAD_FILE_CHANGED on Android content:// files)
   if (!err.response) {
-    return 'Network error. Please check your internet connection.'
+    return 'Network error. Please check your internet connection, or re-select your resume file and try again.' + diagnostics()
   }
 
   // Structured validation errors from the backend (array or keyed object)

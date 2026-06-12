@@ -6,6 +6,8 @@ import Spinner from '../components/Spinner'
 import { countries, statesByCountry, getCities, branchesByCourse } from '../utils/locationData'
 import { INSTAGRAM_THANKYOU_PATH, rememberFormSource } from '../utils/routes'
 import { logSubmissionAttempt, parseSubmitError } from '../utils/submitDebug'
+import { snapshotResumeFile } from '../utils/fileSnapshot'
+import ResumeVerifyStatus from '../components/ResumeVerifyStatus'
 
 const ROLE_OPTIONS = [
   'Junior Data Engineer',
@@ -194,6 +196,8 @@ export default function InstagramApplicationForm() {
   const [errors, setErrors]           = useState({})
   const [showToast, setShowToast]     = useState(false)
   const [loading, setLoading]         = useState(false)
+  // null | 'verifying' | 'verified' | 'failed' — resume readability check
+  const [resumeStatus, setResumeStatus] = useState(null)
   const fileRef    = useRef()
   const toastTimer = useRef()
 
@@ -298,16 +302,17 @@ export default function InstagramApplicationForm() {
       // Instagram form → Instagram thank-you page (Instagram WhatsApp group)
       navigate(INSTAGRAM_THANKYOU_PATH, { state: { submitted: true, role: form.selectedRole } })
     } catch (err) {
-      setErrors({ submit: parseSubmitError(err, 'InstagramForm') })
+      setErrors({ submit: parseSubmitError(err, 'InstagramForm', form.resume) })
       setShowToast(true)
     } finally {
       setLoading(false)
     }
   }
 
-  function handleFile(e) {
+  async function handleFile(e) {
     const file = e.target.files[0]
     if (!file) return
+    setResumeStatus(null)
     // Android pickers (Drive, Samsung My Files) sometimes provide a correct
     // MIME type but a missing/odd extension — accept the file if EITHER matches
     const ext = file.name.split('.').pop().toLowerCase()
@@ -329,7 +334,22 @@ export default function InstagramApplicationForm() {
       setErrors(prev => ({ ...prev, resume: 'File must be under 2MB' }))
       return
     }
-    set('resume', file)
+    // Copy the bytes into memory NOW. Android content://-backed Files can be
+    // invalidated by their provider before submit, which aborts the upload in
+    // the browser (ERR_UPLOAD_FILE_CHANGED) and surfaces as "Network Error"
+    // without the request ever reaching the server. Verifying here means the
+    // applicant learns about an unreadable file before filling the whole form.
+    setErrors(prev => { const next = { ...prev }; delete next.resume; return next })
+    setResumeStatus('verifying')
+    try {
+      set('resume', await snapshotResumeFile(file))
+      setResumeStatus('verified')
+    } catch {
+      set('resume', null)
+      setResumeStatus('failed')
+      // Reset the input so picking the same file again re-fires onChange
+      if (fileRef.current) fileRef.current.value = ''
+    }
   }
 
   // Helper: red ring on errored inputs
@@ -694,6 +714,7 @@ export default function InstagramApplicationForm() {
                     )}
                   </div>
                   {errors.resume && <p className="text-red-500 text-xs mt-1">⚠ {errors.resume}</p>}
+                  <ResumeVerifyStatus status={resumeStatus} file={form.resume} />
                 </div>
 
               </div>
@@ -712,7 +733,7 @@ export default function InstagramApplicationForm() {
 
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || resumeStatus === 'verifying' || resumeStatus === 'failed'}
               className="btn-primary w-full text-base py-3.5 flex items-center justify-center gap-2"
             >
               {loading ? <><Spinner /> Submitting…</> : 'Submit Application'}
