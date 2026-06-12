@@ -5,6 +5,7 @@ import Header from '../components/Header'
 import Spinner from '../components/Spinner'
 import { countries, statesByCountry, getCities, branchesByCourse } from '../utils/locationData'
 import { OFFICIAL_THANKYOU_PATH, rememberFormSource } from '../utils/routes'
+import { logSubmissionAttempt, parseSubmitError } from '../utils/submitDebug'
 
 const COURSES = ['BE', 'MBA', 'BCOM', 'MCOM', 'Others']
 
@@ -224,7 +225,7 @@ function FooterInline() {
       <div className="max-w-4xl mx-auto px-4 py-4">
         <div className="flex flex-col sm:flex-row items-center justify-between gap-2 text-sm">
           <div className="text-center sm:text-left">
-            <p className="font-heading font-bold text-sm">Mandi Hariyaanna Academy</p>
+            <p className="font-heading font-bold text-sm">Mandi Hariyanna Academy</p>
             <p className="text-brand-300 text-xs mt-0.5">Mandi Harish Foundation®</p>
           </div>
           <div className="text-brand-300 text-xs text-center">
@@ -346,6 +347,7 @@ export default function ApplicationForm() {
 
     setShowToast(false)
     setLoading(true)
+    logSubmissionAttempt('OfficialForm', form)
     try {
       const fd = new FormData()
       Object.entries(form).forEach(([k, v]) => {
@@ -356,8 +358,7 @@ export default function ApplicationForm() {
       // Official form → official thank-you page (official WhatsApp group)
       navigate(OFFICIAL_THANKYOU_PATH, { state: { submitted: true, role: form.selectedRole } })
     } catch (err) {
-      const msg = err.response?.data?.message || 'Submission failed. Please try again.'
-      setErrors({ submit: msg })
+      setErrors({ submit: parseSubmitError(err, 'OfficialForm') })
       setShowToast(true)
     } finally {
       setLoading(false)

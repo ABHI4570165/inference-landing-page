@@ -5,6 +5,7 @@ import Header from '../components/Header'
 import Spinner from '../components/Spinner'
 import { countries, statesByCountry, getCities, branchesByCourse } from '../utils/locationData'
 import { INSTAGRAM_THANKYOU_PATH, rememberFormSource } from '../utils/routes'
+import { logSubmissionAttempt, parseSubmitError } from '../utils/submitDebug'
 
 const ROLE_OPTIONS = [
   'Junior Data Engineer',
@@ -283,6 +284,7 @@ export default function InstagramApplicationForm() {
 
     setShowToast(false)
     setLoading(true)
+    logSubmissionAttempt('InstagramForm', form)
     try {
       const fd = new FormData()
       Object.entries(form).forEach(([k, v]) => {
@@ -293,8 +295,7 @@ export default function InstagramApplicationForm() {
       // Instagram form → Instagram thank-you page (Instagram WhatsApp group)
       navigate(INSTAGRAM_THANKYOU_PATH, { state: { submitted: true, role: form.selectedRole } })
     } catch (err) {
-      const msg = err.response?.data?.message || 'Submission failed. Please try again.'
-      setErrors({ submit: msg })
+      setErrors({ submit: parseSubmitError(err, 'InstagramForm') })
       setShowToast(true)
     } finally {
       setLoading(false)
