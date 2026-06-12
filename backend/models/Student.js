@@ -38,6 +38,17 @@ const studentSchema = new mongoose.Schema({
     enum: ['Fresher', '0-3 Years', '3+ Years']
   },
 
+  // Where the application came from.
+  // Defaults to 'official_college' so legacy documents and the existing
+  // form keep working without a migration.
+  source: {
+    type: String,
+    enum: ['official_college', 'instagram'],
+    required: true,
+    default: 'official_college',
+    index: true
+  },
+
   selected_role: {
     type: String,
     required: true,

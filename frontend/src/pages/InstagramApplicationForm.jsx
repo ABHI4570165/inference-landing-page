@@ -4,14 +4,19 @@ import API from '../utils/api'
 import Header from '../components/Header'
 import Spinner from '../components/Spinner'
 import { countries, statesByCountry, getCities, branchesByCourse } from '../utils/locationData'
-import { OFFICIAL_THANKYOU_PATH, rememberFormSource } from '../utils/routes'
-
-const COURSES = ['BE', 'MBA', 'BCOM', 'MCOM', 'Others']
+import { INSTAGRAM_THANKYOU_PATH, rememberFormSource } from '../utils/routes'
 
 const ROLE_OPTIONS = [
   'Junior Data Engineer',
   'Junior Data Scientist – Generative AI',
   'Sales Executive (Inside Sales / Junior Sales Track)'
+]
+
+// Course is free text on this form, so the branch dropdown offers the union of
+// every branch across courses (plus Others → specify)
+const ALL_BRANCHES = [
+  ...new Set(Object.values(branchesByCourse).flat().filter(b => b !== 'Others')),
+  'Others'
 ]
 
 // Human-readable label for each field key — used in the toast error list
@@ -26,7 +31,6 @@ const FIELD_LABELS = {
   city:         'City',
   college:      'College / University',
   course:       'Course',
-  customCourse: 'Course (specify)',
   branch:       'Branch / Specialization',
   customBranch: 'Branch (specify)',
   experience:   'Work Experience',
@@ -38,7 +42,7 @@ const initialForm = {
   name: '', gender: '', email: '', phone: '', aadhar: '',
   country: '', state: '', city: '', address: '',
   college: '',
-  course: '', customCourse: '',
+  course: '',
   branch: '', customBranch: '',
   experience: '',
   selectedRole: '',
@@ -157,66 +161,6 @@ function SearchableSelect({ id, options, value, onChange, placeholder, disabled 
   )
 }
 
-// ── College searchable dropdown ────────────────────────────────────────────────
-function CollegeSelect({ colleges, value, onChange, error }) {
-  const [query, setQuery] = useState('')
-  const [open, setOpen]   = useState(false)
-  const ref = useRef()
-
-  const options  = colleges.map(c => c.name)
-  const filtered = options.filter(o => o.toLowerCase().includes(query.toLowerCase()))
-
-  useEffect(() => {
-    function handler(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [])
-
-  function select(opt) { onChange(opt); setQuery(opt); setOpen(false) }
-  useEffect(() => { setQuery(value || '') }, [value])
-
-  return (
-    <div ref={ref} className="relative">
-      <input
-        id="field-college"
-        type="text"
-        className={`form-input w-full pr-8 ${error ? 'border-red-400 ring-1 ring-red-300' : ''}`}
-        placeholder="Type to search your college…"
-        value={query}
-        onChange={e => { setQuery(e.target.value); setOpen(true); if (!e.target.value) onChange('') }}
-        onFocus={() => setOpen(true)}
-        autoComplete="off"
-      />
-      <span className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400">
-        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-        </svg>
-      </span>
-      {open && (
-        <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg text-sm overflow-hidden">
-          {filtered.length > 0 && (
-            <ul className="max-h-48 overflow-y-auto">
-              {filtered.map(opt => (
-                <li
-                  key={opt}
-                  onMouseDown={() => select(opt)}
-                  className={`px-4 py-2 cursor-pointer hover:bg-brand-50 hover:text-brand-700
-                    ${value === opt ? 'bg-brand-50 text-brand-700 font-medium' : 'text-gray-700'}`}
-                >
-                  {opt}
-                </li>
-              ))}
-            </ul>
-          )}
-          <div className="px-4 py-2.5 bg-amber-50 border-t border-amber-100 text-amber-800 text-xs">
-            🏫 College not listed? Please contact your <strong>Placement Officer</strong> to get your college added.
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
 // ── Non-sticky footer ──────────────────────────────────────────────────────────
 function FooterInline() {
   return (
@@ -243,21 +187,19 @@ function FooterInline() {
 }
 
 // ── Main component ─────────────────────────────────────────────────────────────
-export default function ApplicationForm() {
+export default function InstagramApplicationForm() {
   const navigate = useNavigate()
   const [form, setForm]               = useState(initialForm)
   const [errors, setErrors]           = useState({})
   const [showToast, setShowToast]     = useState(false)
-  const [colleges, setColleges]       = useState([])
   const [loading, setLoading]         = useState(false)
   const fileRef    = useRef()
   const toastTimer = useRef()
 
   useEffect(() => {
-    // Mark this visitor as an official-form applicant — "/" and unknown
-    // URLs will bring them back here, never to the Instagram form
-    rememberFormSource('official')
-    API.get('/api/colleges').then(r => setColleges(r.data)).catch(() => {})
+    // Mark this visitor as an Instagram applicant — "/" and unknown URLs
+    // will bring them back here, never to the official form
+    rememberFormSource('instagram')
   }, [])
 
   // Auto-dismiss toast after 6 s
@@ -269,18 +211,14 @@ export default function ApplicationForm() {
     return () => clearTimeout(toastTimer.current)
   }, [showToast])
 
-  const states   = form.country ? (statesByCountry[form.country] || ['Other']) : []
-  const cities   = form.state   ? getCities(form.state) : []
-  const branches = form.course && form.course !== 'Others'
-    ? (branchesByCourse[form.course] || ['Others'])
-    : ['Others']
+  const states = form.country ? (statesByCountry[form.country] || ['Other']) : []
+  const cities = form.state   ? getCities(form.state) : []
 
   function set(field, value) {
     setForm(prev => {
       const next = { ...prev, [field]: value }
       if (field === 'country') { next.state = ''; next.city = '' }
       if (field === 'state')   { next.city = '' }
-      if (field === 'course')  { next.branch = ''; next.customCourse = ''; next.customBranch = '' }
       if (field === 'branch')  { next.customBranch = '' }
       return next
     })
@@ -302,9 +240,8 @@ export default function ApplicationForm() {
     if (!form.country)                              e.country      = 'Required'
     if (!form.state)                                e.state        = 'Required'
     if (!form.city)                                 e.city         = 'Required'
-    if (!form.college)                              e.college      = 'Select your college from the list'
-    if (!form.course)                               e.course       = 'Required'
-    if (form.course === 'Others' && !form.customCourse.trim())   e.customCourse = 'Please specify your course'
+    if (!form.college.trim())                       e.college      = 'Required'
+    if (!form.course.trim())                        e.course       = 'Required'
     if (!form.branch)                               e.branch       = 'Required'
     if (form.branch === 'Others' && !form.customBranch.trim())   e.customBranch = 'Please specify your branch'
     if (!form.experience)                           e.experience   = 'Required'
@@ -317,7 +254,7 @@ export default function ApplicationForm() {
   const FIELD_ORDER = [
     'name', 'gender', 'email', 'phone', 'aadhar', 'selectedRole',
     'country', 'state', 'city',
-    'college', 'course', 'customCourse', 'branch', 'customBranch',
+    'college', 'course', 'branch', 'customBranch',
     'experience', 'resume'
   ]
 
@@ -352,9 +289,9 @@ export default function ApplicationForm() {
         if (k !== 'resume' && v) fd.append(k, v)
       })
       fd.append('resume', form.resume)
-      await API.post('/api/students', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
-      // Official form → official thank-you page (official WhatsApp group)
-      navigate(OFFICIAL_THANKYOU_PATH, { state: { submitted: true, role: form.selectedRole } })
+      await API.post('/api/students/instagram', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+      // Instagram form → Instagram thank-you page (Instagram WhatsApp group)
+      navigate(INSTAGRAM_THANKYOU_PATH, { state: { submitted: true, role: form.selectedRole } })
     } catch (err) {
       const msg = err.response?.data?.message || 'Submission failed. Please try again.'
       setErrors({ submit: msg })
@@ -599,31 +536,35 @@ export default function ApplicationForm() {
               </h3>
               <div className="space-y-4">
 
+                {/* College — free text (no dropdown restriction) */}
                 <div>
                   <label className="form-label" htmlFor="field-college">
                     College / University <span className="text-red-500">*</span>
                   </label>
-                  <CollegeSelect
-                    colleges={colleges}
+                  <input
+                    id="field-college"
+                    type="text"
+                    className={inputCls('college')}
                     value={form.college}
-                    onChange={v => set('college', v)}
-                    error={errors.college}
+                    onChange={e => set('college', e.target.value)}
+                    placeholder="Enter your college / university name"
                   />
                   {errors.college && <p className="text-red-500 text-xs mt-1">⚠ {errors.college}</p>}
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {/* Course — free text (no dropdown restriction) */}
                   <div>
                     <label className="form-label" htmlFor="field-course">
                       Course <span className="text-red-500">*</span>
                     </label>
-                    <SearchableSelect
+                    <input
                       id="field-course"
-                      options={COURSES}
+                      type="text"
+                      className={inputCls('course')}
                       value={form.course}
-                      onChange={v => set('course', v)}
-                      placeholder="Select Course"
-                      error={errors.course}
+                      onChange={e => set('course', e.target.value)}
+                      placeholder="e.g. BE, MBA, BSc Computer Science"
                     />
                     {errors.course && <p className="text-red-500 text-xs mt-1">⚠ {errors.course}</p>}
                   </div>
@@ -633,33 +574,15 @@ export default function ApplicationForm() {
                     </label>
                     <SearchableSelect
                       id="field-branch"
-                      options={branches}
+                      options={ALL_BRANCHES}
                       value={form.branch}
                       onChange={v => set('branch', v)}
                       placeholder="Select Branch"
-                      disabled={!form.course}
                       error={errors.branch}
                     />
                     {errors.branch && <p className="text-red-500 text-xs mt-1">⚠ {errors.branch}</p>}
                   </div>
                 </div>
-
-                {form.course === 'Others' && (
-                  <div>
-                    <label className="form-label" htmlFor="field-customCourse">
-                      Specify Course <span className="text-red-500">*</span>
-                    </label>
-                    <textarea
-                      id="field-customCourse"
-                      className={inputCls('customCourse')}
-                      rows={2}
-                      value={form.customCourse}
-                      onChange={e => set('customCourse', e.target.value)}
-                      placeholder="Enter your course name"
-                    />
-                    {errors.customCourse && <p className="text-red-500 text-xs mt-1">⚠ {errors.customCourse}</p>}
-                  </div>
-                )}
 
                 {form.branch === 'Others' && (
                   <div>
