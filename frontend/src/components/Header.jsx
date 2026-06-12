@@ -8,8 +8,8 @@ export default function Header() {
           <div className="flex items-center gap-3 flex-shrink-0">
             <img src="/mandi-logo.png" alt="Mandi Hariyanna Academy" className="w-12 h-12 object-contain rounded-full" />
             <div>
-              <h1 className="font-heading text-base font-bold text-brand-800 leading-tight">Mandi Hariyanna</h1>
-              <p className="text-xs text-gray-500">MANDI HARISH FOUNDATION®</p>
+              <h1 className="font-heading text-base font-bold text-brand-800 leading-tight">MANDI HARISH FOUNDATION®</h1>
+              {/* <p className="text-xs text-gray-500">MANDI HARISH FOUNDATION®</p> */}
             </div>
           </div>
           <div className="text-center flex-1">
@@ -26,8 +26,8 @@ export default function Header() {
           <div className="flex items-center gap-3">
             <img src="/mandi-logo.png" alt="Mandi Hariyanna Academy" className="w-10 h-10 object-contain rounded-full" />
             <div>
-              <h1 className="font-heading text-sm font-bold text-brand-800 leading-tight">Mandi Hariyanna</h1>
-              <p className="text-xs text-gray-500">MANDI HARISH FOUNDATION®</p>
+              <h1 className="font-heading text-sm font-bold text-brand-800 leading-tight">MANDI HARISH FOUNDATION®</h1>
+              {/* <p className="text-xs text-gray-500">MANDI HARISH FOUNDATION®</p> */}
             </div>
           </div>
           {/* Row 2: Portal title */}
