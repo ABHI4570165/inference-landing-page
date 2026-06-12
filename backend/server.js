@@ -45,10 +45,12 @@ app.use(express.json({ limit: '100kb' }));
 app.use(mongoSanitize());
 
 // ── Rate limiting ───────────────────────────────────────────────
-// Global API limiter — generous, protects against scraping/flooding
+// Global API limiter — generous, protects against scraping/flooding.
+// NOTE: mobile carriers (Jio/Airtel CGNAT) put THOUSANDS of users behind a
+// single IP, so per-IP limits must stay high or real applicants get blocked.
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 500,
+  max: 2000,
   standardHeaders: true,
   legacyHeaders: false,
   message: { message: 'Too many requests, please try again later.' }
@@ -63,15 +65,18 @@ const loginLimiter = rateLimit({
   message: { message: 'Too many login attempts. Please try again in 15 minutes.' }
 });
 
-// Submission limiter — generous enough for a college lab behind one NAT IP,
-// strict enough to stop automated form spam
+// Submission limiter — must accommodate college labs AND mobile-carrier CGNAT
+// where many genuine applicants share one IP; still stops runaway bot floods
 const submitLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 50,
+  max: 300,
   standardHeaders: true,
   legacyHeaders: false,
   skip: req => req.method !== 'POST',
-  message: { message: 'Too many submissions from this network. Please try again later.' }
+  handler: (req, res) => {
+    console.warn(`[RATE LIMITED] submission blocked | ip=${req.ip} ua="${req.headers['user-agent'] || 'unknown'}"`);
+    res.status(429).json({ message: 'Too many submissions from this network right now. Please wait a few minutes and try again.' });
+  }
 });
 
 app.use('/api', apiLimiter);

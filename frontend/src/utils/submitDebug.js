@@ -50,6 +50,11 @@ export function parseSubmitError(err, formName) {
   }
 
   // ── User-facing message ──
+  // Upload exceeded the client timeout — slow connection, not a server fault
+  if (err.code === 'ECONNABORTED' || err.code === 'ETIMEDOUT') {
+    return 'The upload is taking too long — your connection may be slow. Please move to a stronger network or Wi-Fi and try again.'
+  }
+
   // Request never reached the server (offline, DNS, CORS, server down)
   if (!err.response) {
     return 'Network error. Please check your internet connection.'

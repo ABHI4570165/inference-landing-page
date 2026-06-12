@@ -1,4 +1,5 @@
 const express  = require('express');
+const multer   = require('multer');
 const router   = express.Router();
 const upload   = require('../middleware/upload');
 const auth     = require('../middleware/auth');
@@ -36,13 +37,52 @@ const escapeRegex = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 // (Instagram form) consistent for the admin college filter
 const normalizeText = s => s.trim().replace(/\s+/g, ' ');
 
+// ── Resume upload wrapper ──────────────────────────────────────────────────────
+// Runs multer manually so upload errors (file filter, size limit, Cloudinary)
+// return meaningful 4xx responses and show up in Render logs with context,
+// instead of falling through to the global 500 handler.
+function handleResumeUpload(req, res, next) {
+  upload.single('resume')(req, res, err => {
+    if (!err) return next();
+
+    const ua = req.headers['user-agent'] || 'unknown';
+    if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
+      console.warn(`[SUBMIT REJECTED] file too large | ua="${ua}"`);
+      return res.status(413).json({ message: 'Resume file is too large. Maximum size is 10MB.' });
+    }
+    if (err.message === 'Only PDF, DOC, DOCX files are allowed') {
+      // Already logged with file details by the upload middleware
+      return res.status(400).json({ message: err.message });
+    }
+    // Anything else here is a storage/Cloudinary failure
+    console.error(`[SUBMIT ERROR] resume upload failed | ua="${ua}"`, err.stack || err);
+    return res.status(502).json({ message: 'Resume upload failed. Please try again in a moment.' });
+  });
+}
+
 // ── Shared submission handler ──────────────────────────────────────────────────
 // Both the Official College form and the Instagram form go through the same
 // validation and persistence logic; only `source` differs.
 function submitApplication(source) {
   return async (req, res) => {
+    const startedAt = Date.now();
+    const ua = req.headers['user-agent'] || 'unknown';
+    // Render-visible diagnostics. Deliberately excludes personal data
+    // (name, email, phone, Aadhar are never logged).
+    console.log(
+      `[SUBMIT RECEIVED] source=${source} role="${req.body?.selectedRole || ''}" ` +
+      `file="${req.file?.originalname || 'NONE'}" size=${req.file?.size ?? 0} ` +
+      `mime="${req.file?.mimetype || ''}" ua="${ua}"`
+    );
+
+    const rejected = (status, logReason, message) => {
+      console.warn(`[SUBMIT REJECTED] source=${source} reason="${logReason}" ua="${ua}"`);
+      return res.status(status).json({ message });
+    };
+
     try {
-      if (!req.file) return res.status(400).json({ message: 'Resume is required' });
+      if (!req.file) return rejected(400, 'no resume file in request', 'Resume is required');
+      if (req.file.size === 0) return rejected(400, 'empty resume file', 'The uploaded resume file is empty. Please try uploading it again.');
 
       const {
         name, gender, email, phone, aadhar,
@@ -69,38 +109,36 @@ function submitApplication(source) {
       if (!experience)   missing.push('experience');
       if (!selectedRole) missing.push('selectedRole');
       if (missing.length) {
-        return res.status(400).json({ message: `Missing required fields: ${missing.join(', ')}` });
+        return rejected(400, `missing fields: ${missing.join(',')}`, `Missing required fields: ${missing.join(', ')}`);
       }
 
       // ── Phone validation: exactly 10 digits ──
       if (!/^\d{10}$/.test(phone.replace(/\s/g, ''))) {
-        return res.status(400).json({ message: 'Phone number must be exactly 10 digits' });
+        return rejected(400, 'invalid phone format', 'Phone number must be exactly 10 digits');
       }
 
       // ── Aadhar validation: exactly 12 digits ──
       const cleanAadhar = aadhar.replace(/\s/g, '');
       if (!/^\d{12}$/.test(cleanAadhar)) {
-        return res.status(400).json({ message: 'Aadhar number must be exactly 12 digits' });
+        return rejected(400, 'invalid aadhar format', 'Aadhar number must be exactly 12 digits');
       }
 
       // ── Role validation ──
       if (!ALLOWED_ROLES.includes(selectedRole)) {
-        return res.status(400).json({ message: 'Invalid role selected' });
+        return rejected(400, 'invalid role', 'Invalid role selected');
       }
 
       // ── Duplicate checks ──
       const dupAadhar = await Student.findOne({ aadhar: cleanAadhar });
       if (dupAadhar) {
-        return res.status(409).json({
-          message: 'An application with this Aadhar number already exists. Duplicate applications are not allowed.'
-        });
+        return rejected(409, 'duplicate aadhar',
+          'An application with this Aadhar number already exists. Duplicate applications are not allowed.');
       }
 
       const dupEmail = await Student.findOne({ email: email.toLowerCase().trim() });
       if (dupEmail) {
-        return res.status(409).json({
-          message: 'An application with this email address already exists.'
-        });
+        return rejected(409, 'duplicate email',
+          'An application with this email address already exists. If you just submitted, your application was received — please do not submit again.');
       }
 
       // ── Build and save student ──
@@ -131,6 +169,7 @@ function submitApplication(source) {
       });
 
       await student.save();
+      console.log(`[SUBMIT OK] source=${source} id=${student._id} ms=${Date.now() - startedAt}`);
       res.status(201).json({ message: 'Application submitted successfully', id: student._id });
 
     } catch (err) {
@@ -140,19 +179,27 @@ function submitApplication(source) {
         const msg   = field === 'aadhar'
           ? 'An application with this Aadhar number already exists.'
           : `A duplicate ${field} was detected.`;
-        return res.status(409).json({ message: msg });
+        return rejected(409, `duplicate key: ${field}`, msg);
       }
-      console.error(`[POST /api/students${source === 'instagram' ? '/instagram' : ''}]`, err);
-      res.status(500).json({ message: err.message || 'Server error' });
+      // Mongoose validation failure → 400 with the specific reason
+      if (err.name === 'ValidationError') {
+        const detail = Object.values(err.errors || {}).map(e => e.message).join('; ');
+        return rejected(400, `schema validation: ${detail}`, detail || 'Invalid application data');
+      }
+      console.error(
+        `[SUBMIT ERROR] source=${source} ms=${Date.now() - startedAt} ua="${ua}"`,
+        err.stack || err
+      );
+      res.status(500).json({ message: 'Something went wrong while saving your application. Please try again.' });
     }
   };
 }
 
 // ── POST /api/students — Official College form submission ──────────────────────
-router.post('/', upload.single('resume'), submitApplication('official_college'));
+router.post('/', handleResumeUpload, submitApplication('official_college'));
 
 // ── POST /api/students/instagram — Instagram form submission ───────────────────
-router.post('/instagram', upload.single('resume'), submitApplication('instagram'));
+router.post('/instagram', handleResumeUpload, submitApplication('instagram'));
 
 // ── GET /api/students/colleges — unique college list for filter (admin only) ───
 // Includes free-text colleges entered through the Instagram form.

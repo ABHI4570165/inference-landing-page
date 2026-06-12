@@ -354,7 +354,10 @@ export default function ApplicationForm() {
         if (k !== 'resume' && v) fd.append(k, v)
       })
       fd.append('resume', form.resume)
-      await API.post('/api/students', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+      // NOTE: do NOT set Content-Type manually — the browser must generate
+      // the multipart boundary itself, or some Android browsers send an
+      // unparseable body. 90s timeout covers resume uploads on slow mobile data.
+      await API.post('/api/students', fd, { timeout: 90000 })
       // Official form → official thank-you page (official WhatsApp group)
       navigate(OFFICIAL_THANKYOU_PATH, { state: { submitted: true, role: form.selectedRole } })
     } catch (err) {
@@ -368,9 +371,21 @@ export default function ApplicationForm() {
   function handleFile(e) {
     const file = e.target.files[0]
     if (!file) return
+    // Android pickers (Drive, Samsung My Files) sometimes provide a correct
+    // MIME type but a missing/odd extension — accept the file if EITHER matches
     const ext = file.name.split('.').pop().toLowerCase()
-    if (!['pdf', 'doc', 'docx'].includes(ext)) {
+    const okExt  = ['pdf', 'doc', 'docx'].includes(ext)
+    const okMime = [
+      'application/pdf',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    ].includes(file.type)
+    if (!okExt && !okMime) {
       setErrors(prev => ({ ...prev, resume: 'Only PDF, DOC, DOCX allowed' }))
+      return
+    }
+    if (file.size === 0) {
+      setErrors(prev => ({ ...prev, resume: 'The selected file is empty — please choose another file' }))
       return
     }
     if (file.size > 2 * 1024 * 1024) {
@@ -733,7 +748,7 @@ export default function ApplicationForm() {
                     <input
                       ref={fileRef}
                       type="file"
-                      accept=".pdf,.doc,.docx"
+                      accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                       className="hidden"
                       onChange={handleFile}
                     />
