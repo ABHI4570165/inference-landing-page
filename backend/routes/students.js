@@ -232,14 +232,12 @@ router.get('/stats', auth, async (req, res) => {
       Student.aggregate([
         { $group: { _id: '$college', count: { $sum: 1 } } },
         { $sort: { count: -1, _id: 1 } },
-        { $limit: 5 },
         { $project: { _id: 0, college: '$_id', count: 1 } }
       ]),
       Student.aggregate([
         { $match: { source: 'instagram' } },
         { $group: { _id: '$college', count: { $sum: 1 } } },
         { $sort: { count: -1, _id: 1 } },
-        { $limit: 5 },
         { $project: { _id: 0, college: '$_id', count: 1 } }
       ])
     ]);
@@ -263,7 +261,9 @@ router.get('/stats', auth, async (req, res) => {
 router.get('/', auth, async (req, res) => {
   try {
     const page   = Math.max(1, parseInt(req.query.page)  || 1);
-    const limit  = Math.min(100, parseInt(req.query.limit) || 15);
+    // Cap is high (not 100) so the admin Excel export can pull every record in
+    // one request; normal table pagination still defaults to 15 per page.
+    const limit  = Math.min(10000, parseInt(req.query.limit) || 15);
     const search   = req.query.search?.trim()   || '';
     const role     = req.query.role?.trim()     || '';
     const source   = req.query.source?.trim()   || '';

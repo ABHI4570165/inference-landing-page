@@ -173,7 +173,7 @@ function TopCollegesPanel({ title, icon, items }) {
       {!items?.length ? (
         <p className="text-gray-400 text-sm py-2">No applications yet.</p>
       ) : (
-        <ul className="space-y-2">
+        <ul className="space-y-2 overflow-y-auto pr-1" style={{ maxHeight: '300px' }}>
           {items.map((c, i) => (
             <li key={c.college} className="text-sm">
               <div className="flex items-center justify-between gap-2 mb-0.5">
