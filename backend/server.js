@@ -84,9 +84,10 @@ app.use('/api/auth/login', loginLimiter);
 app.use('/api/students', submitLimiter);
 
 // Routes
-app.use('/api/auth',     require('./routes/auth'));
-app.use('/api/students', require('./routes/students'));
-app.use('/api/colleges', require('./routes/colleges'));
+app.use('/api/auth',       require('./routes/auth'));
+app.use('/api/students',   require('./routes/students'));
+app.use('/api/colleges',   require('./routes/colleges'));
+app.use('/api/attendance', require('./routes/attendance'));
 
 // Health check
 app.get('/', (req, res) =>

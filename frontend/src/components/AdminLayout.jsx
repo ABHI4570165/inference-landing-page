@@ -13,6 +13,7 @@ export default function AdminLayout({ children }) {
 
   const navItems = [
     { path: '/admin/dashboard', label: 'Applications', icon: '📋' },
+    { path: '/admin/attendance', label: 'Attendance', icon: '✅' },
     { path: '/admin/colleges', label: 'Colleges', icon: '🏛️' }
   ]
 

@@ -9,6 +9,7 @@ import NotFound from './pages/NotFound'
 import AdminLogin from './pages/AdminLogin'
 import AdminDashboard from './pages/AdminDashboard'
 import AdminColleges from './pages/AdminColleges'
+import AdminAttendance from './pages/AdminAttendance'
 import {
   OFFICIAL_FORM_PATH, OFFICIAL_THANKYOU_PATH,
   INSTAGRAM_FORM_PATH, INSTAGRAM_THANKYOU_PATH,
@@ -41,6 +42,7 @@ export default function App() {
         <Route path="/admin/login" element={<AdminLogin />} />
         <Route path="/admin/dashboard" element={<ProtectedRoute><AdminDashboard /></ProtectedRoute>} />
         <Route path="/admin/colleges" element={<ProtectedRoute><AdminColleges /></ProtectedRoute>} />
+        <Route path="/admin/attendance" element={<ProtectedRoute><AdminAttendance /></ProtectedRoute>} />
         {/* Any other /admin/* URL (e.g. /admin, /admin/users) → login */}
         <Route path="/admin/*" element={<Navigate to="/admin/login" replace />} />
         <Route path="/admin" element={<Navigate to="/admin/login" replace />} />
