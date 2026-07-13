@@ -11,7 +11,8 @@ const ROLE_OPTIONS = [
 
 const SOURCE_LABELS = {
   official_college: 'Official College',
-  instagram:        'Instagram'
+  instagram:        'Instagram',
+  missed_test:      'Missed Test'
 }
 
 const RESUME_EXT_BY_MIME = {
@@ -351,16 +352,18 @@ export default function AdminDashboard() {
   const sourceTabs = [
     { value: '',                 label: 'All Applications' },
     { value: 'official_college', label: 'Official College' },
-    { value: 'instagram',        label: 'Instagram' }
+    { value: 'instagram',        label: 'Instagram' },
+    { value: 'missed_test',      label: 'Missed Test' }
   ]
 
   return (
     <AdminLayout>
       {/* ── Statistics cards ── */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-4">
         <StatCard label="Total Applications"            value={stats?.total}           icon="📊" accent="bg-brand-50"  />
         <StatCard label="Official College Applications" value={stats?.officialCollege} icon="🏛️" accent="bg-blue-50"   />
         <StatCard label="Instagram Applications"        value={stats?.instagram}       icon="📸" accent="bg-pink-50"   />
+        <StatCard label="Missed Test Applications"      value={stats?.missedTest}      icon="📝" accent="bg-amber-50"  />
         <StatCard label="Today's Applications"          value={stats?.today}           icon="🗓️" accent="bg-green-50"  />
       </div>
 
@@ -458,6 +461,7 @@ export default function AdminDashboard() {
                 <option value="">All Sources</option>
                 <option value="official_college">Official College</option>
                 <option value="instagram">Instagram</option>
+                <option value="missed_test">Missed Test</option>
               </select>
             </div>
             <div>
@@ -536,7 +540,9 @@ export default function AdminDashboard() {
                     {/* Source */}
                     <td className="px-4 py-3 whitespace-nowrap">
                       <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${
-                        s.source === 'instagram' ? 'bg-pink-100 text-pink-700' : 'bg-blue-100 text-blue-700'
+                        s.source === 'instagram'   ? 'bg-pink-100 text-pink-700'
+                        : s.source === 'missed_test' ? 'bg-amber-100 text-amber-700'
+                        : 'bg-blue-100 text-blue-700'
                       }`}>
                         {sourceLabel(s)}
                       </span>

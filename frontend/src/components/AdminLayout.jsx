@@ -14,6 +14,8 @@ export default function AdminLayout({ children }) {
   const navItems = [
     { path: '/admin/dashboard', label: 'Applications', icon: '📋' },
     { path: '/admin/attendance', label: 'Attendance', icon: '✅' },
+    { path: '/admin/attendance/history', label: 'History', icon: '🗓️' },
+    { path: '/admin/counselling', label: 'Counselling', icon: '🧭', prefix: true },
     { path: '/admin/colleges', label: 'Colleges', icon: '🏛️' }
   ]
 
@@ -29,16 +31,21 @@ export default function AdminLayout({ children }) {
               </div>
               <span className="font-heading font-bold text-sm hidden sm:block">Admin Panel</span>
             </div>
-            <nav className="flex gap-1">
-              {navItems.map(item => (
-                <Link
-                  key={item.path}
-                  to={item.path}
-                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition ${location.pathname === item.path ? 'bg-white/20 text-white' : 'text-brand-200 hover:text-white hover:bg-white/10'}`}
-                >
-                  <span className="mr-1">{item.icon}</span>{item.label}
-                </Link>
-              ))}
+            <nav className="flex gap-1 flex-wrap">
+              {navItems.map(item => {
+                const active = item.prefix
+                  ? location.pathname.startsWith(item.path)
+                  : location.pathname === item.path
+                return (
+                  <Link
+                    key={item.path}
+                    to={item.path}
+                    className={`px-3 py-1.5 rounded-lg text-sm font-medium transition ${active ? 'bg-white/20 text-white' : 'text-brand-200 hover:text-white hover:bg-white/10'}`}
+                  >
+                    <span className="mr-1">{item.icon}</span>{item.label}
+                  </Link>
+                )
+              })}
             </nav>
           </div>
           <div className="flex items-center gap-3">

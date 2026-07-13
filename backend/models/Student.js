@@ -43,7 +43,7 @@ const studentSchema = new mongoose.Schema({
   // form keep working without a migration.
   source: {
     type: String,
-    enum: ['official_college', 'instagram'],
+    enum: ['official_college', 'instagram', 'missed_test'],
     required: true,
     default: 'official_college',
     index: true

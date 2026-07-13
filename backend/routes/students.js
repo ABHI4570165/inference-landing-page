@@ -12,7 +12,7 @@ const ALLOWED_ROLES = [
   'Sales Executive (Inside Sales / Junior Sales Track)'
 ];
 
-const ALLOWED_SOURCES = ['official_college', 'instagram'];
+const ALLOWED_SOURCES = ['official_college', 'instagram', 'missed_test'];
 
 // Cloudinary raw files often come back as octet-stream; map by extension
 const MIME_BY_EXT = {
@@ -201,6 +201,10 @@ router.post('/', handleResumeUpload, submitApplication('official_college'));
 // ── POST /api/students/instagram — Instagram form submission ───────────────────
 router.post('/instagram', handleResumeUpload, submitApplication('instagram'));
 
+// ── POST /api/students/missed-test — Missed Test form submission ───────────────
+// For students who could not visit/attend the test.
+router.post('/missed-test', handleResumeUpload, submitApplication('missed_test'));
+
 // ── GET /api/students/colleges — unique college list for filter (admin only) ───
 // Includes free-text colleges entered through the Instagram form.
 // NOTE: must be declared before GET /:id
@@ -225,9 +229,10 @@ router.get('/stats', auth, async (req, res) => {
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
 
-    const [total, instagram, today, topColleges, topInstagramColleges] = await Promise.all([
+    const [total, instagram, missedTest, today, topColleges, topInstagramColleges] = await Promise.all([
       Student.countDocuments({}),
       Student.countDocuments({ source: 'instagram' }),
+      Student.countDocuments({ source: 'missed_test' }),
       Student.countDocuments({ createdAt: { $gte: startOfToday } }),
       Student.aggregate([
         { $group: { _id: '$college', count: { $sum: 1 } } },
@@ -245,8 +250,9 @@ router.get('/stats', auth, async (req, res) => {
     // Legacy documents without `source` count as official_college
     res.json({
       total,
-      officialCollege: total - instagram,
+      officialCollege: total - instagram - missedTest,
       instagram,
+      missedTest,
       today,
       topColleges,
       topInstagramColleges
@@ -293,9 +299,9 @@ router.get('/', auth, async (req, res) => {
     if (ALLOWED_SOURCES.includes(source)) {
       // Legacy documents have no `source` field — treat them as official_college
       conditions.push(
-        source === 'instagram'
-          ? { source: 'instagram' }
-          : { source: { $ne: 'instagram' } }
+        source === 'official_college'
+          ? { source: { $nin: ['instagram', 'missed_test'] } }
+          : { source }
       );
     }
 

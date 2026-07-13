@@ -4,10 +4,13 @@ const API = axios.create({
   baseURL: import.meta.env.VITE_API_URL || '/api'
 })
 
-// Attach token
+// Attach the admin token — unless the request already carries its own
+// Authorization header (e.g. the public counselling form's session token)
 API.interceptors.request.use(config => {
   const token = localStorage.getItem('admin_token')
-  if (token) config.headers.Authorization = `Bearer ${token}`
+  if (token && !config.headers.Authorization) {
+    config.headers.Authorization = `Bearer ${token}`
+  }
   return config
 })
 

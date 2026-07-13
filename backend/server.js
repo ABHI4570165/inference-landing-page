@@ -1,11 +1,12 @@
-require('dotenv').config();
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '.env') });
 const express   = require('express');
 const mongoose  = require('mongoose');
 const cors      = require('cors');
-const path      = require('path');
 const helmet    = require('helmet');
 const rateLimit = require('express-rate-limit');
 const mongoSanitize = require('express-mongo-sanitize');
+const { validateGeminiConnection } = require('./services/geminiService');
 
 // ── Validate required env vars at startup ──────────────────────
 const REQUIRED_ENV = [
@@ -23,6 +24,16 @@ if (missing.length) {
 }
 
 const app = express();
+
+const envLoaded = {
+  GEMINI_API_KEY: !!process.env.GEMINI_API_KEY,
+  GOOGLE_API_KEY: !!process.env.GOOGLE_API_KEY
+};
+console.log(`✓ Loaded env from ${path.join(__dirname, '.env')}`);
+console.log(`✓ GEMINI_API_KEY loaded: ${envLoaded.GEMINI_API_KEY ? 'YES' : 'NO'}`);
+if (envLoaded.GOOGLE_API_KEY) {
+  console.warn('⚠️ Detected deprecated GOOGLE_API_KEY; rename it to GEMINI_API_KEY in backend/.env');
+}
 
 // Behind a reverse proxy (Render/Railway/Nginx) — needed so rate limiting
 // sees the real client IP instead of the proxy's
@@ -79,15 +90,29 @@ const submitLimiter = rateLimit({
   }
 });
 
+// Counselling verification limiter — stops identity-guessing while allowing
+// a full classroom (behind one college / CGNAT IP) to verify normally
+const counsellingVerifyLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: 'Too many attempts from this network. Please wait a few minutes and try again.' }
+});
+
 app.use('/api', apiLimiter);
 app.use('/api/auth/login', loginLimiter);
 app.use('/api/students', submitLimiter);
+app.use('/api/counselling/verify', counsellingVerifyLimiter);
 
 // Routes
-app.use('/api/auth',       require('./routes/auth'));
-app.use('/api/students',   require('./routes/students'));
-app.use('/api/colleges',   require('./routes/colleges'));
-app.use('/api/attendance', require('./routes/attendance'));
+app.use('/api/auth',        require('./routes/auth'));
+app.use('/api/students',    require('./routes/students'));
+app.use('/api/colleges',    require('./routes/colleges'));
+app.use('/api/attendance',  require('./routes/attendance'));
+app.use('/api/attendance-sessions', require('./routes/attendanceSessions'));
+app.use('/api/counselling', require('./routes/counselling'));
+app.use('/api/admin/counselling', require('./routes/counsellingAdmin'));
 
 // Health check
 app.get('/', (req, res) =>
@@ -106,6 +131,21 @@ mongoose.connect(process.env.MONGODB_URI)
   .then(async () => {
     console.log('✅  MongoDB connected');
     await require('./seedAdmin')();
+    await require('./seedCounsellingQuestions')();
+
+    if (process.env.GEMINI_API_KEY) {
+      if (process.env.GEMINI_STARTUP_VALIDATE === 'true') {
+        try {
+          await validateGeminiConnection();
+          console.log('Gemini connection successful.');
+        } catch (err) {
+          console.error('Gemini startup validation failed:', err.stack || err.message);
+        }
+      } else {
+        console.log('Gemini startup validation skipped. Set GEMINI_STARTUP_VALIDATE=true to enable it.');
+      }
+    }
+
     app.listen(PORT, () =>
       console.log(`✅  Server running on http://localhost:${PORT}`)
     );

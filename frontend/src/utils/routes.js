@@ -7,6 +7,14 @@ export const OFFICIAL_THANKYOU_PATH  = '/thanks/ofc-x7k2m9q4w1'
 export const INSTAGRAM_FORM_PATH     = '/apply/ig-p5n8r3t6v2'
 export const INSTAGRAM_THANKYOU_PATH = '/thanks/ig-p5n8r3t6v2'
 
+// Missed Test form — for students who could not visit/attend the test
+export const MISSED_TEST_FORM_PATH     = '/apply/mt-k4j7w2n9x5'
+export const MISSED_TEST_THANKYOU_PATH = '/thanks/mt-k4j7w2n9x5'
+
+// Counselling assessment — opened via QR code; students verify with their
+// registered name/email/mobile, so the path itself can stay friendly
+export const COUNSELLING_FORM_PATH = '/counselling'
+
 // Remember which form the visitor last opened so that hitting "/" (or any
 // unknown URL) sends them back to THEIR form — official visitors never see
 // the Instagram form and vice versa.

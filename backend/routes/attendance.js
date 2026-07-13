@@ -2,6 +2,7 @@ const router     = require('express').Router();
 const auth       = require('../middleware/auth');
 const Student    = require('../models/Student');
 const Attendance = require('../models/Attendance');
+const { syncSessionFromAttendance } = require('../services/attendanceSessions');
 
 const VALID_STATUS = ['Present', 'Absent'];
 const DATE_RX = /^\d{4}-\d{2}-\d{2}$/;
@@ -153,6 +154,10 @@ router.post('/', auth, async (req, res) => {
       { new: true, upsert: true, runValidators: true, setDefaultsOnInsert: true }
     ).lean();
 
+    // Record the change in the historical session (with edit audit trail)
+    syncSessionFromAttendance(student.college, date.trim(), req.admin?.email)
+      .catch(e => console.error('[attendance session sync]', e));
+
     res.json(record);
   } catch (err) {
     console.error('[POST /api/attendance]', err);
@@ -220,6 +225,15 @@ router.post('/bulk', auth, async (req, res) => {
     }
 
     const result = await Attendance.bulkWrite(ops, { ordered: false });
+
+    // Record this save in the historical sessions (one per college touched),
+    // appending any changes to the edit audit trail
+    const colleges = [...new Set([...collegeById.values()])];
+    for (const college of colleges) {
+      syncSessionFromAttendance(college, cleanDate, req.admin?.email)
+        .catch(e => console.error('[attendance session sync]', e));
+    }
+
     res.json({
       message: 'Attendance saved',
       upserted: result.upsertedCount || 0,
