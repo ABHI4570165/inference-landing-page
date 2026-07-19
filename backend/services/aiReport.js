@@ -3,8 +3,10 @@ const CounsellingReport = require('../models/CounsellingReport');
 const CounsellingQuestion = require('../models/CounsellingQuestion');
 const { buildFinalReport } = require('./localCounsellingEngine');
 const { sendGeminiPrompt } = require('./geminiService');
+const { sendOllamaPrompt, OLLAMA_MODEL } = require('./ollamaService');
 
 const MAX_GEMINI_RETRIES = 2;
+const MAX_OLLAMA_RETRIES = 1; // local CPU inference is slow — don't retry aggressively
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
 const MAX_PROMPT_CHARS = 14000;
 const MAX_PROMPT_TOKENS = 2800;
@@ -200,6 +202,30 @@ async function generateGeminiReport(response, questions, baseScores, totalGot, t
   throw lastError;
 }
 
+// ── Local LLM fallback (Ollama) ─────────────────────────────────────────────
+// Same prompt/JSON-shape as Gemini so the two AI sources are interchangeable
+// from generateReport's point of view. Tried only after Gemini fails, before
+// giving up to the deterministic local rule-engine.
+async function generateOllamaReport(response, questions, baseScores, totalGot, totalMax) {
+  let prompt = buildGeminiPrompt(response, questions, baseScores, totalGot, totalMax);
+  if (shouldCompressPrompt(prompt)) {
+    prompt = buildCompressedGeminiPrompt(response, questions, baseScores, totalGot, totalMax);
+  }
+
+  let lastError = null;
+  for (let attempt = 1; attempt <= MAX_OLLAMA_RETRIES; attempt += 1) {
+    try {
+      const output = await sendOllamaPrompt(prompt);
+      return JSON.parse(output);
+    } catch (err) {
+      lastError = err;
+      console.warn(`[Ollama][attempt] response=${String(response._id)} student=${String(response.student)} attempt=${attempt} error=${err.message || err}`);
+      if (attempt < MAX_OLLAMA_RETRIES) continue;
+    }
+  }
+  throw lastError;
+}
+
 // ── Deterministic metric scores ─────────────────────────────────────────────
 // Aggregates option points by each question's metricTags. Editable questions
 // keep this working: tags live on the question document, not in code.
@@ -372,75 +398,89 @@ async function generateReport(response) {
       throw err;
     }
 
-    try {
-      const geminiData = await generateGeminiReport(response, questions, baseScores, totalGot, totalMax);
-
+    // Shared by both real AI sources (Gemini and Ollama produce the same JSON
+    // shape) — only reportSource/generatedBy/aiModel differ between them.
+    function applyAiData(reportSource, generatedBy, aiModel, data) {
       const scores = {};
       for (const m of METRICS.concat('overall')) {
-        const v = Number(geminiData.scores?.[m]);
+        const v = Number(data.scores?.[m]);
         scores[m] = Number.isFinite(v) ? Math.max(0, Math.min(100, Math.round(v))) : baseScores[m];
       }
-
       report.set({
         status: 'completed',
         aiStatus: 'Completed',
-        reportSource: 'Gemini',
-        generatedBy: 'Gemini',
+        reportSource,
+        generatedBy,
         fallbackReason: null,
-        overallPersonality: geminiData.overallPersonality,
-        technicalInterest: geminiData.technicalInterest,
-        careerReadiness: geminiData.careerReadiness,
-        learningBehaviour: geminiData.learningBehaviour,
-        confidenceAnalysis: geminiData.confidenceAnalysis,
-        skillGapAnalysis: geminiData.skillGapAnalysis,
-        strengths: geminiData.strengths || [],
-        weaknesses: geminiData.weaknesses || [],
-        behaviourAnalysis: geminiData.behaviourAnalysis || {},
-        careerFit: geminiData.careerFit || [],
-        trainingRecommendation: geminiData.trainingRecommendation || {},
-        recommendedCareerPath: geminiData.recommendedCareerPath || '',
-        recommendedTrainingPlan: geminiData.recommendedTrainingPlan || '',
-        counsellorRecommendation: geminiData.counsellorRecommendation,
+        overallPersonality: data.overallPersonality,
+        technicalInterest: data.technicalInterest,
+        careerReadiness: data.careerReadiness,
+        learningBehaviour: data.learningBehaviour,
+        confidenceAnalysis: data.confidenceAnalysis,
+        skillGapAnalysis: data.skillGapAnalysis,
+        strengths: data.strengths || [],
+        weaknesses: data.weaknesses || [],
+        behaviourAnalysis: data.behaviourAnalysis || {},
+        careerFit: data.careerFit || [],
+        trainingRecommendation: data.trainingRecommendation || {},
+        recommendedCareerPath: data.recommendedCareerPath || '',
+        recommendedTrainingPlan: data.recommendedTrainingPlan || '',
+        counsellorRecommendation: data.counsellorRecommendation,
         scores,
-        aiModel: GEMINI_MODEL,
+        aiModel,
         generatedAt: new Date(),
         error: null
       });
+    }
+
+    try {
+      const geminiData = await generateGeminiReport(response, questions, baseScores, totalGot, totalMax);
+      applyAiData('Gemini', 'Gemini', GEMINI_MODEL, geminiData);
       await report.save();
       return report;
     } catch (geminiErr) {
       console.error(`[AI Report] Gemini generation failed for response ${response._id}:`, geminiErr.message);
-      const fallbackReason = sanitizeFallbackReason(geminiErr);
-      const localData = buildFinalReport(response, questions, baseScores, fallbackReason);
-      const scores = localData.scores || baseScores;
 
-      report.set({
-        status: 'completed',
-        aiStatus: 'Fallback',
-        reportSource: 'Local Engine',
-        generatedBy: 'Rule Engine',
-        fallbackReason,
-        overallPersonality: localData.overallPersonality,
-        technicalInterest: localData.technicalInterest,
-        careerReadiness: localData.careerReadiness,
-        learningBehaviour: localData.learningBehaviour,
-        confidenceAnalysis: localData.confidenceAnalysis,
-        skillGapAnalysis: localData.skillGapAnalysis,
-        strengths: localData.strengths || [],
-        weaknesses: localData.weaknesses || [],
-        behaviourAnalysis: localData.behaviourAnalysis || {},
-        careerFit: localData.careerFit || [],
-        trainingRecommendation: localData.trainingRecommendation || {},
-        recommendedCareerPath: localData.recommendedCareerPath || '',
-        recommendedTrainingPlan: localData.recommendedTrainingPlan || '',
-        counsellorRecommendation: localData.counsellorRecommendation,
-        scores,
-        aiModel: 'local-rule-engine',
-        generatedAt: new Date(),
-        error: null
-      });
-      await report.save();
-      return report;
+      try {
+        const ollamaData = await generateOllamaReport(response, questions, baseScores, totalGot, totalMax);
+        applyAiData('Ollama', 'Ollama (local)', OLLAMA_MODEL, ollamaData);
+        report.set({ fallbackReason: `Gemini unavailable (${sanitizeFallbackReason(geminiErr)}); used local Ollama model instead.` });
+        await report.save();
+        return report;
+      } catch (ollamaErr) {
+        console.error(`[AI Report] Ollama generation failed for response ${response._id}:`, ollamaErr.message);
+        const fallbackReason = `${sanitizeFallbackReason(geminiErr)} Local Ollama model also unavailable (${ollamaErr.message}).`;
+        const localData = buildFinalReport(response, questions, baseScores, fallbackReason);
+        const scores = localData.scores || baseScores;
+
+        report.set({
+          status: 'completed',
+          aiStatus: 'Fallback',
+          reportSource: 'Local Engine',
+          generatedBy: 'Rule Engine',
+          fallbackReason,
+          overallPersonality: localData.overallPersonality,
+          technicalInterest: localData.technicalInterest,
+          careerReadiness: localData.careerReadiness,
+          learningBehaviour: localData.learningBehaviour,
+          confidenceAnalysis: localData.confidenceAnalysis,
+          skillGapAnalysis: localData.skillGapAnalysis,
+          strengths: localData.strengths || [],
+          weaknesses: localData.weaknesses || [],
+          behaviourAnalysis: localData.behaviourAnalysis || {},
+          careerFit: localData.careerFit || [],
+          trainingRecommendation: localData.trainingRecommendation || {},
+          recommendedCareerPath: localData.recommendedCareerPath || '',
+          recommendedTrainingPlan: localData.recommendedTrainingPlan || '',
+          counsellorRecommendation: localData.counsellorRecommendation,
+          scores,
+          aiModel: 'local-rule-engine',
+          generatedAt: new Date(),
+          error: null
+        });
+        await report.save();
+        return report;
+      }
     }
   } finally {
     releaseReportLock(response._id);

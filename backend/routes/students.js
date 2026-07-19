@@ -2,7 +2,7 @@ const express  = require('express');
 const multer   = require('multer');
 const router   = express.Router();
 const upload   = require('../middleware/upload');
-const auth     = require('../middleware/auth');
+const auth     = require('../config/auth');
 const Student  = require('../models/Student');
 const cloudinary = require('../config/cloudinary');
 

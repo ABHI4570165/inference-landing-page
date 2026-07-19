@@ -55,6 +55,7 @@ function EditModal({ student, onClose, onSave }) {
     { key: 'name', label: 'Full Name' },
     { key: 'email', label: 'Email' },
     { key: 'phone', label: 'Phone' },
+    { key: 'aadhar', label: 'Aadhar Number' },
     { key: 'country', label: 'Country' },
     { key: 'state', label: 'State' },
     { key: 'city', label: 'City' },
@@ -109,7 +110,7 @@ function EditModal({ student, onClose, onSave }) {
 // ── Excel export (no external library needed) ──────────────────
 function exportToExcel(students) {
   const headers = [
-    '#', 'Name', 'Email', 'Phone', 'Country', 'State', 'City', 'Address',
+    '#', 'Name', 'Email', 'Phone', 'Aadhar', 'Country', 'State', 'City', 'Address',
     'College', 'Course', 'Branch', 'Experience', 'Role Applied', 'Source', 'Applied Date', 'Resume Link (admin login required)'
   ]
 
@@ -120,6 +121,7 @@ function exportToExcel(students) {
     s.name,
     s.email,
     s.phone,
+    s.aadhar,
     s.country,
     s.state,
     s.city,
@@ -501,8 +503,8 @@ export default function AdminDashboard() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-200">
-                  {['#', 'Name', 'Email', 'Phone', 'Country', 'State', 'City',
-                    'College', 'Course', 'Branch', 'Experience', 'Role Applied', 'Source', 'Applied', 'Actions'].map(h => (
+                    {['#', 'Name', 'Email', 'Phone', 'Aadhar', 'Country', 'State', 'City',
+                      'College', 'Course', 'Branch', 'Experience', 'Role Applied', 'Source', 'Applied', 'Photo', 'Registered', 'Counselling', 'Actions'].map(h => (
                     <th key={h} className="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wide whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
@@ -514,6 +516,7 @@ export default function AdminDashboard() {
                     <td className="px-4 py-3 font-medium text-gray-800 whitespace-nowrap">{s.name}</td>
                     <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{s.email}</td>
                     <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{s.phone}</td>
+                    <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{s.aadhar}</td>
                     <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{s.country}</td>
                     <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{s.state}</td>
                     <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{s.city}</td>
@@ -548,6 +551,33 @@ export default function AdminDashboard() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{new Date(s.createdAt).toLocaleDateString('en-IN')}</td>
+                    {/* Reception registration photo */}
+                    <td className="px-4 py-3">
+                      {s.registrationPhoto ? (
+                        <a href={s.registrationPhoto} target="_blank" rel="noreferrer" title="View registration photo">
+                          <img src={s.registrationPhoto} alt={s.name} className="w-10 h-10 rounded-full object-cover border border-gray-200" />
+                        </a>
+                      ) : (
+                        <span className="text-gray-300">—</span>
+                      )}
+                    </td>
+                    {/* Reception registration status */}
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      {s.registrationStatus === 'REGISTERED' ? (
+                        <span className="inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">Registered</span>
+                      ) : (
+                        <span className="inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700">Not Registered</span>
+                      )}
+                      {s.registrationTime && <div className="text-xs text-gray-500 mt-1">{new Date(s.registrationTime).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' })}</div>}
+                    </td>
+                    {/* Counselling status */}
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      {s.counsellingStatus === 'COMPLETED' ? (
+                        <span className="inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-700">Completed</span>
+                      ) : (
+                        <span className="inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700">Pending</span>
+                      )}
+                    </td>
                     <td className="px-4 py-3">
                       <div className="flex gap-1">
                         {/* Edit */}
@@ -575,6 +605,20 @@ export default function AdminDashboard() {
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                           </svg>
                         </button>
+                        {/* Delete reception registration entirely (photo + record, reset to Not Registered) */}
+                        {(s.registrationStatus === 'REGISTERED' || s.registrationPhotoPublicId) && (
+                          <button onClick={async () => {
+                            if (!confirm(`Delete ${s.name}'s reception registration? Their photo and check-in record will be removed and they will need to check in again from scratch.`)) return
+                            try {
+                              await API.delete(`/api/reception/registration/${s._id}`)
+                              fetchStudents(page, search)
+                            } catch { alert('Delete failed') }
+                          }} title="Delete Registration" className="p-1.5 rounded hover:bg-red-50 text-red-500 transition">
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 7h12M9 3h6m-7 4v12a2 2 0 002 2h4a2 2 0 002-2V7" />
+                            </svg>
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>

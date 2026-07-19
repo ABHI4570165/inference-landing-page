@@ -1,17 +1,18 @@
 import { Link, useLocation } from 'react-router-dom'
+import { ADMIN_COUNSELLING, ADMIN_COUNSELLING_RESPONSES, ADMIN_COUNSELLING_QUESTIONS } from '../utils/routes'
 
 // Sub-navigation for the admin Counselling area
 export default function CounsellingNav() {
   const { pathname } = useLocation()
   const tabs = [
-    { path: '/admin/counselling', label: 'Dashboard' },
-    { path: '/admin/counselling/responses', label: 'Responses' },
-    { path: '/admin/counselling/questions', label: 'Questions' }
+    { path: ADMIN_COUNSELLING, label: 'Dashboard' },
+    { path: ADMIN_COUNSELLING_RESPONSES, label: 'Responses' },
+    { path: ADMIN_COUNSELLING_QUESTIONS, label: 'Questions' }
   ]
   return (
     <div className="flex gap-1.5 mb-5 flex-wrap">
       {tabs.map(t => {
-        const active = t.path === '/admin/counselling'
+        const active = t.path === ADMIN_COUNSELLING
           ? pathname === t.path
           : pathname.startsWith(t.path)
         return (

@@ -1,9 +1,11 @@
 const router = require('express').Router();
 const mongoose = require('mongoose');
-const auth = require('../middleware/auth');
+const auth = require('../config/auth');
 const CounsellingQuestion = require('../models/CounsellingQuestion');
 const CounsellingResponse = require('../models/CounsellingResponse');
 const CounsellingReport = require('../models/CounsellingReport');
+const Student = require('../models/Student');
+const ReceptionCheckin = require('../models/ReceptionCheckin');
 const AuditLog = require('../models/AuditLog');
 const { generateReport } = require('../services/aiReport');
 
@@ -201,6 +203,32 @@ router.get('/responses/:id', auth, async (req, res) => {
     res.json({ response, report, attendance });
   } catch (err) {
     console.error('[GET counselling/responses/:id]', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// DELETE /api/admin/counselling/responses/:id — permanently delete a response
+// and its AI report. Resets the student's counselling status back to PENDING
+// (and that day's ReceptionCheckin record) so re-registration/re-assessment
+// starts clean rather than looking like they've already completed it.
+router.delete('/responses/:id', auth, async (req, res) => {
+  try {
+    const response = await CounsellingResponse.findById(req.params.id);
+    if (!response) return res.status(404).json({ message: 'Response not found' });
+
+    await CounsellingReport.deleteOne({ response: response._id });
+    await response.deleteOne();
+
+    await Student.updateOne({ _id: response.student }, { counsellingStatus: 'PENDING' });
+    await ReceptionCheckin.updateOne(
+      { student: response.student, date: response.attendanceDate },
+      { counsellingStatus: 'PENDING', $unset: { counsellingCompletedAt: '' } }
+    );
+
+    logAudit('response.delete', 'StudentCounselling', response._id, req.admin?.email, response.toObject());
+    res.json({ message: 'Response deleted' });
+  } catch (err) {
+    console.error('[DELETE counselling/responses/:id]', err);
     res.status(500).json({ message: 'Server error' });
   }
 });

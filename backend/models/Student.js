@@ -68,6 +68,25 @@ const studentSchema = new mongoose.Schema({
   resume_mime_type:     { type: String, required: true },
   uploaded_at:          { type: Date, required: true, default: Date.now, index: true }
 
+  // Reception registration fields
+  ,registrationStatus: {
+    type: String,
+    enum: ['NOT_REGISTERED', 'REGISTERED'],
+    default: 'NOT_REGISTERED',
+    index: true
+  },
+  registrationTime: { type: Date },
+  registrationPhoto: { type: String },
+  registrationPhotoPublicId: { type: String },
+
+  // Counselling status
+  counsellingStatus: {
+    type: String,
+    enum: ['PENDING', 'COMPLETED'],
+    default: 'PENDING',
+    index: true
+  }
+
 }, { timestamps: true });
 
 // Compound unique index: one application per (aadhar + role)

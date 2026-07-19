@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { ADMIN_COUNSELLING_RESPONSES } from '../utils/routes'
 import API from '../utils/api'
 import AdminLayout from '../components/AdminLayout'
 import CounsellingNav from '../components/CounsellingNav'
@@ -50,6 +51,18 @@ export default function AdminCounsellingResponses() {
   }, [page, limit, filters])
 
   const pages = Math.max(1, Math.ceil(total / limit))
+
+  async function handleDelete(e, r) {
+    e.stopPropagation()
+    if (!confirm(`Delete ${r.name}'s counselling response? They will be able to fill the form again from scratch.`)) return
+    try {
+      await API.delete(`/api/admin/counselling/responses/${r._id}`)
+      setRows(prev => prev.filter(row => row._id !== r._id))
+      setTotal(t => t - 1)
+    } catch (err) {
+      alert(err.response?.data?.message || 'Delete failed')
+    }
+  }
 
   async function fetchExportData() {
     const params = new URLSearchParams()
@@ -177,19 +190,19 @@ export default function AdminCounsellingResponses() {
         <table className="w-full text-sm">
           <thead>
             <tr className="bg-gray-50 border-b border-gray-200">
-              {['Student', 'College', 'Date', 'Status', 'Completion', 'Score', 'AI Report', 'Overall'].map(h => (
+              {['Student', 'College', 'Date', 'Status', 'Completion', 'Score', 'AI Report', 'Overall', 'Actions'].map(h => (
                 <th key={h} className="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wide whitespace-nowrap">{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={8} className="px-4 py-14 text-center text-gray-400"><Spinner /> Loading…</td></tr>
+              <tr><td colSpan={9} className="px-4 py-14 text-center text-gray-400"><Spinner /> Loading…</td></tr>
             ) : rows.length === 0 ? (
-              <tr><td colSpan={8} className="px-4 py-14 text-center text-gray-400">No responses match these filters.</td></tr>
+              <tr><td colSpan={9} className="px-4 py-14 text-center text-gray-400">No responses match these filters.</td></tr>
             ) : rows.map(r => (
               <tr key={r._id}
-                onClick={() => navigate(`/admin/counselling/responses/${r._id}`)}
+                onClick={() => navigate(`${ADMIN_COUNSELLING_RESPONSES}/${r._id}`)}
                 className="border-b border-gray-100 hover:bg-brand-50/40 cursor-pointer transition">
                 <td className="px-4 py-3">
                   <p className="font-medium text-gray-800 whitespace-nowrap">{r.name}</p>
@@ -212,6 +225,17 @@ export default function AdminCounsellingResponses() {
                   </span>
                 </td>
                 <td className="px-4 py-3 font-semibold text-gray-800">{r.scores?.overall ?? '—'}</td>
+                <td className="px-4 py-3">
+                  <button
+                    onClick={e => handleDelete(e, r)}
+                    title="Delete Response — student can refill from scratch"
+                    className="p-1.5 rounded hover:bg-red-50 text-red-500 transition"
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                  </button>
+                </td>
               </tr>
             ))}
           </tbody>

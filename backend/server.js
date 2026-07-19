@@ -113,6 +113,7 @@ app.use('/api/attendance',  require('./routes/attendance'));
 app.use('/api/attendance-sessions', require('./routes/attendanceSessions'));
 app.use('/api/counselling', require('./routes/counselling'));
 app.use('/api/admin/counselling', require('./routes/counsellingAdmin'));
+app.use('/api/reception', require('./routes/reception'));
 
 // Health check
 app.get('/', (req, res) =>
@@ -132,6 +133,7 @@ mongoose.connect(process.env.MONGODB_URI)
     console.log('✅  MongoDB connected');
     await require('./seedAdmin')();
     await require('./seedCounsellingQuestions')();
+    await require('./backfillReceptionCheckins')();
 
     if (process.env.GEMINI_API_KEY) {
       if (process.env.GEMINI_STARTUP_VALIDATE === 'true') {

@@ -69,7 +69,7 @@ npm run dev
 ```
 
 Open http://localhost:5173 for the student form.
-Open http://localhost:5173/admin/login for the admin panel.
+Open http://localhost:5173/adm-3e9f7b2c/login for the admin panel (unguessable admin URL).
 
 ---
 

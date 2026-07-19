@@ -473,9 +473,7 @@ function Shell({ children }) {
     <div className="min-h-screen bg-gray-50">
       <header className="bg-brand-800 text-white">
         <div className="max-w-3xl mx-auto px-4 py-5 flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-brand-500 flex items-center justify-center flex-shrink-0">
-            <span className="font-bold">M</span>
-          </div>
+          <img src="/mandi-logo.png" alt="M H Foundation" className="w-10 h-10 object-contain bg-white rounded-full p-0.5 flex-shrink-0" />
           <div>
             <h1 className="font-heading font-bold text-lg leading-tight">Student Counselling Assessment</h1>
             <p className="text-brand-200 text-xs">M H Foundation — Career Counselling</p>

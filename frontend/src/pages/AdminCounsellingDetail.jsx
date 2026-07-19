@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, useNavigate, Link } from 'react-router-dom'
+import { ADMIN_COUNSELLING_RESPONSES } from '../utils/routes'
 import API from '../utils/api'
 import AdminLayout from '../components/AdminLayout'
 import Spinner from '../components/Spinner'
@@ -14,10 +15,11 @@ const BEHAVIOUR_LABELS = {
 
 export default function AdminCounsellingDetail() {
   const { id } = useParams()
+  const navigate = useNavigate()
   const [data, setData] = useState(null) // { response, report, attendance }
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
-  const [busy, setBusy] = useState(null) // 'unlock' | 'regenerate'
+  const [busy, setBusy] = useState(null) // 'unlock' | 'regenerate' | 'delete'
   const [message, setMessage] = useState(null)
 
   const load = useCallback(async () => {
@@ -65,6 +67,18 @@ export default function AdminCounsellingDetail() {
     }
   }
 
+  async function handleDelete() {
+    if (!window.confirm('Delete this counselling response? The student will be able to fill the form again from scratch. This cannot be undone.')) return
+    setBusy('delete')
+    try {
+      await API.delete(`/api/admin/counselling/responses/${id}`)
+      navigate(ADMIN_COUNSELLING_RESPONSES)
+    } catch (err) {
+      setMessage({ type: 'error', text: err.response?.data?.message || 'Delete failed' })
+      setBusy(null)
+    }
+  }
+
   if (loading) {
     return <AdminLayout><div className="card flex justify-center py-20 text-gray-400 gap-2"><Spinner /> Loading profile…</div></AdminLayout>
   }
@@ -94,7 +108,7 @@ export default function AdminCounsellingDetail() {
 
       <div className="flex flex-wrap items-start justify-between gap-3 mb-5 print-hide">
         <div>
-          <Link to="/admin/counselling/responses" className="text-sm text-brand-600 hover:underline">← Back to responses</Link>
+          <Link to={ADMIN_COUNSELLING_RESPONSES} className="text-sm text-brand-600 hover:underline">← Back to responses</Link>
           <h2 className="font-heading text-2xl font-bold text-gray-800 mt-1">{r.name}</h2>
           <p className="text-gray-500 text-sm">{r.college}{r.branch ? ` • ${r.branch}` : ''} • Session {r.attendanceDate}</p>
         </div>
@@ -108,6 +122,9 @@ export default function AdminCounsellingDetail() {
             {busy === 'regenerate' ? <><Spinner /> Generating…</> : (report?.status === 'completed' ? '↻ Regenerate AI Report' : '⚡ Generate AI Report')}
           </button>
           <button className="btn-primary text-sm" onClick={() => window.print()}>🖨 Print / PDF</button>
+          <button className="btn-danger text-sm" onClick={handleDelete} disabled={!!busy}>
+            {busy === 'delete' ? 'Deleting…' : '🗑 Delete Response'}
+          </button>
         </div>
       </div>
 
@@ -124,6 +141,18 @@ export default function AdminCounsellingDetail() {
           <span className="px-3 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-700">
             AI Report
           </span>
+          {report.reportSource && (
+            <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
+              report.reportSource === 'Gemini' ? 'bg-blue-100 text-blue-700'
+              : report.reportSource === 'Ollama' ? 'bg-purple-100 text-purple-700'
+              : 'bg-amber-100 text-amber-700'
+            }`}>
+              {report.reportSource === 'Ollama' ? `Ollama (${report.aiModel})` : report.reportSource}
+            </span>
+          )}
+          {report.fallbackReason && (
+            <span className="text-xs text-gray-500" title={report.fallbackReason}>ⓘ {report.fallbackReason}</span>
+          )}
         </div>
       )}
 

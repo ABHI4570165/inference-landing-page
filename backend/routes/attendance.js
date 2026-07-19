@@ -1,5 +1,5 @@
 const router     = require('express').Router();
-const auth       = require('../middleware/auth');
+const auth       = require('../config/auth');
 const Student    = require('../models/Student');
 const Attendance = require('../models/Attendance');
 const { syncSessionFromAttendance } = require('../services/attendanceSessions');

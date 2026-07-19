@@ -5,6 +5,7 @@ const Attendance = require('../models/Attendance');
 const AttendanceSession = require('../models/AttendanceSession');
 const CounsellingQuestion = require('../models/CounsellingQuestion');
 const CounsellingResponse = require('../models/CounsellingResponse');
+const ReceptionCheckin = require('../models/ReceptionCheckin');
 const counsellingAuth = require('../middleware/counsellingAuth');
 const { generateReportInBackground } = require('../services/aiReport');
 
@@ -81,7 +82,7 @@ router.post('/verify', async (req, res) => {
     if (phone.length !== 10) return res.status(400).json({ message: 'Please enter a valid 10-digit mobile number' });
 
     // Match on email, then confirm the phone's last 10 digits agree
-    const candidates = await Student.find({ email }).select('name email phone college branch customBranch').lean();
+    const candidates = await Student.find({ email }).select('name email phone college branch customBranch registrationStatus').lean();
     const student = candidates.find(s => (s.phone || '').replace(/\D/g, '').slice(-10) === phone);
 
     if (!student) {
@@ -95,6 +96,15 @@ router.post('/verify', async (req, res) => {
       return res.status(403).json({
         code: 'NOT_PRESENT',
         message: 'Your attendance has not been recorded yet. Please contact the coordinator.'
+      });
+    }
+
+    // Reception Registration gate — the student must complete the office
+    // check-in (photo capture at the entrance tablet) before counselling opens
+    if (student.registrationStatus !== 'REGISTERED') {
+      return res.status(403).json({
+        code: 'REGISTRATION_REQUIRED',
+        message: 'Reception Registration Required\n\nPlease complete Reception Registration first.'
       });
     }
 
@@ -308,6 +318,17 @@ router.post('/submit', counsellingAuth, async (req, res) => {
       lastSavedAt: new Date()
     });
     await response.save();
+
+    // Reception flow: mark the student's counselling as completed — both the
+    // current-status flag and that specific day's permanent check-in record
+    await Student.updateOne(
+      { _id: response.student },
+      { counsellingStatus: 'COMPLETED' }
+    );
+    await ReceptionCheckin.updateOne(
+      { student: response.student, date: response.attendanceDate },
+      { counsellingStatus: 'COMPLETED', counsellingCompletedAt: new Date() }
+    );
 
     // Generate the AI counselling report asynchronously — never blocks the student
     generateReportInBackground(response);

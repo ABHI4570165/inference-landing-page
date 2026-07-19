@@ -1,13 +1,3 @@
-const KEYWORDS = {
-  data: ['data science', 'data analytics', 'data engineer', 'data analyst', 'machine learning', 'ml', 'ai', 'artificial intelligence', 'business analytics'],
-  cyber: ['cyber security', 'cybersecurity', 'network security', 'ethical hacking', 'information security', 'infosec', 'security analyst'],
-  cloud: ['cloud', 'aws', 'azure', 'gcp', 'google cloud', 'devops', 'cloud engineer', 'aws cloud', 'azure cloud'],
-  software: ['software development', 'software engineer', 'web development', 'frontend', 'backend', 'full stack', 'app development', 'programmer'],
-  government: ['government exam', 'bank', 'govt', 'civil service', 'ssc', 'railway', 'police', 'competitive exam'],
-  higherStudies: ['higher studies', 'masters', 'mtech', 'mba', 'phd', 'research', 'postgraduate'],
-  design: ['ui ux', 'ui/ux', 'design', 'graphic design', 'product design']
-};
-
 const templates = {
   introduction: [
     'The student shows a genuine interest in {path} and approaches their career planning with a thoughtful and curious mindset.',
@@ -41,70 +31,70 @@ const templates = {
   ]
 };
 
-const scoreRanges = {
-  high: ['high', 'strong', 'solid', 'well-developed'],
-  medium: ['moderate', 'average', 'fair', 'steady'],
-  low: ['low', 'developing', 'emerging', 'limited']
-};
-
 function choice(list) {
   return list[Math.floor(Math.random() * list.length)];
 }
 
-function extractText(response) {
-  return response.answers
-    .map(answer => [answer.selected || [], answer.otherText || ''].flat().join(' '))
-    .join(' ')
-    .toLowerCase();
+// ── Real per-student signal ─────────────────────────────────────────────────
+// The old version of this file classified students by scanning the full text
+// of their answers for hardcoded phrases ("high confidence", "advanced",
+// "clear plan"...). The actual questionnaire options never contain those
+// literal phrases (they read like "Comfortable — I can write joins..."), so
+// almost every student failed every keyword check and fell into the same
+// default bucket — producing identical scores and near-identical report text
+// for everyone. These helpers instead read the student's own answers and the
+// already-computed, per-student `baseScores` (real question points), so the
+// classification always reflects what that student actually selected.
+
+function findAnswer(response, code) {
+  return response.answers.find(a => a.code === code);
 }
 
-function safeContains(text, terms) {
-  return terms.some(t => text.includes(t));
-}
-
-function inferCareerPath(text) {
-  if (safeContains(text, KEYWORDS.data)) return 'Data Science / Analytics';
-  if (safeContains(text, KEYWORDS.cyber)) return 'Cyber Security';
-  if (safeContains(text, KEYWORDS.cloud)) return 'Cloud Computing / DevOps';
-  if (safeContains(text, KEYWORDS.design)) return 'UI/UX & Product Design';
-  if (safeContains(text, KEYWORDS.government)) return 'Government / Competitive Exams';
-  if (safeContains(text, KEYWORDS.higherStudies)) return 'Higher Studies / Research';
-  if (safeContains(text, KEYWORDS.software)) return 'Software Development';
-  return 'Technology Career Path';
-}
-
-function inferConfidence(text) {
-  if (safeContains(text, ['high confidence', 'very confident', 'confident', 'strong confidence'])) return 'high';
-  if (safeContains(text, ['low confidence', 'not confident', 'little confidence', 'less confident'])) return 'low';
-  return 'moderate';
-}
-
-function inferCodingLevel(text) {
-  if (safeContains(text, ['advanced', 'experienced', 'proficient', 'strong coding', 'good coding', 'good at coding'])) return 'advanced';
-  if (safeContains(text, ['beginner', 'basic', 'learning', 'just started', 'novice'])) return 'beginner';
-  return 'intermediate';
-}
-
-function inferRoadmapAwareness(text) {
-  if (safeContains(text, ['clear plan', 'roadmap', 'path', 'next steps', 'structured learning', 'prepared plan'])) return 'high';
-  if (safeContains(text, ['not sure', 'uncertain', 'confused', 'no idea', 'don’t know', 'dont know'])) return 'low';
+function tierHML(score) {
+  if (score >= 70) return 'high';
+  if (score < 40) return 'low';
   return 'medium';
 }
 
-function inferInternshipExperience(text) {
-  return safeContains(text, ['internship', 'intern', 'project', 'training', 'hands-on', 'work experience']);
+function tierMotivation(score) {
+  if (score >= 70) return 'high';
+  if (score < 40) return 'low';
+  return 'moderate';
 }
 
-function inferCommunication(text) {
-  if (safeContains(text, ['good communication', 'confidence in speaking', 'presentation', 'group discussion', 'writing skills'])) return 'good';
-  if (safeContains(text, ['shy', 'nervous', 'not comfortable', 'poor communication', 'difficulty speaking'])) return 'weak';
+function tierCoding(score) {
+  if (score >= 70) return 'advanced';
+  if (score < 40) return 'beginner';
+  return 'intermediate';
+}
+
+function tierCommunication(score) {
+  if (score >= 70) return 'good';
+  if (score < 40) return 'weak';
   return 'average';
 }
 
-function inferMotivation(text) {
-  if (safeContains(text, ['passion', 'eager', 'excited', 'very interested', 'enthusiastic', 'love'])) return 'high';
-  if (safeContains(text, ['maybe', 'not sure', 'uncertain', 'not very interested'])) return 'low';
-  return 'moderate';
+// Q5 — "Which role are you MORE interested in?" — direct single-select lookup
+function inferCareerPath(response) {
+  const sel = (findAnswer(response, 'Q5')?.selected || []).join(' ').toLowerCase();
+  if (sel.includes('data analyst') && sel.includes('data engineer')) return 'Data Analyst & Data Engineer';
+  if (sel.includes('data analyst')) return 'Data Analyst';
+  if (sel.includes('data engineer')) return 'Data Engineer';
+  if (sel.includes('both')) return 'Data Analyst & Data Engineer';
+  return 'Data Analytics / Data Engineering (still exploring)';
+}
+
+// Q16 — "Have you done any internship or training in a data-related area?" —
+// treat a meaningfully completed internship/training (2+ pts) as "has experience"
+function inferInternshipExperience(response) {
+  const ans = findAnswer(response, 'Q16');
+  return (ans?.points || 0) >= 2;
+}
+
+// Q27 — preparing for higher studies / government exams instead of this role
+function inferAttritionRisk(response) {
+  const ans = findAnswer(response, 'Q27');
+  return (ans?.points || 0) === 0;
 }
 
 function buildStrengths(data) {
@@ -126,6 +116,7 @@ function buildWeaknesses(data) {
   if (data.codingLevel === 'beginner') weaknesses.push('Requires stronger programming practice to match industry expectations');
   if (data.communication === 'weak') weaknesses.push('Communication skills need improvement for interviews and teamwork');
   if (!data.hasInternship) weaknesses.push('Would benefit from more real-world exposure through projects or internships');
+  if (data.attritionRisk) weaknesses.push('May prioritise higher studies or government exam preparation over long-term commitment to this role');
   if (weaknesses.length === 0) weaknesses.push('Needs to convert motivation into a disciplined learning routine');
   return weaknesses.slice(0, 8);
 }
@@ -273,14 +264,17 @@ function buildBehaviourAnalysis(data) {
 }
 
 function buildFinalReport(response, questions, baseScores, fallbackReason) {
-  const text = extractText(response);
-  const careerPath = inferCareerPath(text);
-  const confidence = inferConfidence(text);
-  const codingLevel = inferCodingLevel(text);
-  const roadmapAwareness = inferRoadmapAwareness(text);
-  const hasInternship = inferInternshipExperience(text);
-  const communication = inferCommunication(text);
-  const motivation = inferMotivation(text);
+  // Every value below is derived from this student's own answers/points —
+  // never from a generic keyword scan of the combined answer text — so two
+  // students who answer differently always get a different report.
+  const careerPath = inferCareerPath(response);
+  const confidence = tierHML(baseScores.confidence);
+  const codingLevel = tierCoding(baseScores.technicalReadiness);
+  const roadmapAwareness = tierHML(baseScores.careerClarity);
+  const hasInternship = inferInternshipExperience(response);
+  const communication = tierCommunication(baseScores.communicationReadiness);
+  const motivation = tierMotivation(baseScores.motivation);
+  const attritionRisk = inferAttritionRisk(response);
 
   const data = {
     careerPath,
@@ -289,7 +283,8 @@ function buildFinalReport(response, questions, baseScores, fallbackReason) {
     roadmapAwareness,
     hasInternship,
     communication,
-    motivation
+    motivation,
+    attritionRisk
   };
 
   const recommendedCareerPath = `${careerPath} is the strongest fit given the student’s current interest and early exposure.`;
@@ -310,17 +305,10 @@ function buildFinalReport(response, questions, baseScores, fallbackReason) {
     skillGapAnalysis: `${data.codingLevel === 'beginner' ? 'Requires more practical coding practice and project experience.' : data.codingLevel === 'intermediate' ? 'Needs to deepen technical skills and apply them to real problems.' : 'Can polish existing skills with more challenging projects.'}`,
     recommendedCareerPath,
     recommendedTrainingPlan,
-    scores: {
-      careerClarity: data.roadmapAwareness === 'high' ? 85 : data.roadmapAwareness === 'medium' ? 65 : 45,
-      confidence: data.confidence === 'high' ? 80 : data.confidence === 'medium' ? 60 : 40,
-      technicalReadiness: data.codingLevel === 'advanced' ? 80 : data.codingLevel === 'intermediate' ? 60 : 40,
-      learningAttitude: data.motivation === 'high' ? 80 : data.motivation === 'moderate' ? 65 : 50,
-      placementReadiness: data.hasInternship ? 70 : 50,
-      communicationReadiness: data.communication === 'good' ? 75 : data.communication === 'average' ? 60 : 45,
-      motivation: data.motivation === 'high' ? 80 : data.motivation === 'moderate' ? 65 : 50,
-      riskLevel: data.confidence === 'low' ? 75 : data.confidence === 'high' ? 40 : 55,
-      overall: Math.round((data.codingLevel === 'advanced' ? 80 : data.codingLevel === 'intermediate' ? 65 : 50) * 0.4 + (data.motivation === 'high' ? 75 : data.motivation === 'moderate' ? 65 : 55) * 0.3 + (data.confidence === 'high' ? 70 : data.confidence === 'medium' ? 55 : 45) * 0.3)
-    }
+    // The deterministic rubric score, computed from this student's actual
+    // question points (see computeMetricScores in aiReport.js) — always
+    // varies per student, unlike a re-derived generic tier formula.
+    scores: baseScores
   };
 
   if (fallbackReason) {

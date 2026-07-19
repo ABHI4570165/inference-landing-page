@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { ADMIN_DASHBOARD } from '../utils/routes'
 import API from '../utils/api'
 import Spinner from '../components/Spinner'
 
@@ -19,7 +20,7 @@ export default function AdminLogin() {
     try {
       const res = await API.post('/api/auth/login', { email, password })
       login(res.data.token, res.data.email)
-      navigate('/admin/dashboard')
+      navigate(ADMIN_DASHBOARD)
     } catch (err) {
       setError(err.response?.data?.message || 'Login failed')
     } finally {
@@ -31,9 +32,7 @@ export default function AdminLogin() {
     <div className="min-h-screen bg-gradient-to-br from-brand-800 to-brand-900 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-8">
         <div className="text-center mb-8">
-          <div className="w-14 h-14 rounded-full bg-brand-600 flex items-center justify-center mx-auto mb-3">
-            <span className="text-white font-bold text-2xl font-heading">M</span>
-          </div>
+          <img src="/mandi-logo.png" alt="M H Foundation" className="w-14 h-14 object-contain mx-auto mb-3" />
           <h1 className="font-heading text-2xl font-bold text-gray-800">Admin Login</h1>
           <p className="text-gray-500 text-sm mt-1">Mandi Hariyanna Portal</p>
         </div>

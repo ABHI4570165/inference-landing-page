@@ -60,10 +60,27 @@ const QUESTIONS = [
       opt('Yes, more than 2 active backlogs', 0)
     ]
   },
+  {
+    ...SEC_A, code: 'Q5',
+    text: 'What are your hobbies / interests outside academics?',
+    type: 'checkbox', allowOther: true, metricTags: [],
+    options: [
+      opt('Content creation / Influencing (Instagram, YouTube, etc.)', 0),
+      opt('AI video / image creation (Reels, AI tools)', 0),
+      opt('Blogging / writing', 0),
+      opt('Photography / videography', 0),
+      opt('Gaming / esports', 0),
+      opt('Music, dance or art', 0),
+      opt('Sports / fitness', 0),
+      opt('Reading / self-learning', 0),
+      opt('Coding side-projects / open source', 0),
+      opt('Traveling', 0)
+    ]
+  },
 
   // ── Section B — Interest in the Data Field ─────────────────────────────
   {
-    ...SEC_B, code: 'Q5', text: 'Which role are you MORE interested in?',
+    ...SEC_B, code: 'Q6', text: 'Which role are you MORE interested in?',
     type: 'radio', metricTags: ['careerClarity'],
     options: [
       opt('Junior Data Analyst (analysis, dashboards, insights)', 2),
@@ -73,7 +90,7 @@ const QUESTIONS = [
     ]
   },
   {
-    ...SEC_B, code: 'Q6',
+    ...SEC_B, code: 'Q7',
     text: 'Why do you want to build your career in Data Analytics / Data Engineering? (choose the closest)',
     type: 'radio', allowOther: true, metricTags: ['motivation', 'careerClarity'],
     options: [
@@ -84,7 +101,7 @@ const QUESTIONS = [
     ]
   },
   {
-    ...SEC_B, code: 'Q7', text: 'How long have you been interested in the data field?',
+    ...SEC_B, code: 'Q8', text: 'How long have you been interested in the data field?',
     type: 'radio', metricTags: ['motivation'],
     options: [
       opt('More than a year — and I have been learning during this time', 3),
@@ -94,7 +111,7 @@ const QUESTIONS = [
     ]
   },
   {
-    ...SEC_B, code: 'Q8', text: 'Where do you see yourself in 3 years?',
+    ...SEC_B, code: 'Q9', text: 'Where do you see yourself in 3 years?',
     type: 'radio', metricTags: ['careerClarity', 'riskLevel'],
     options: [
       opt('A skilled Data Analyst / Data Engineer growing in the same field', 3),
@@ -106,7 +123,7 @@ const QUESTIONS = [
 
   // ── Section C — Technical Exposure ─────────────────────────────────────
   {
-    ...SEC_C, code: 'Q9', text: 'What is your level in SQL?',
+    ...SEC_C, code: 'Q10', text: 'What is your level in SQL?',
     type: 'radio', metricTags: ['technicalReadiness'],
     options: [
       opt('Comfortable — I can write joins, GROUP BY and subqueries on my own', 3),
@@ -116,7 +133,7 @@ const QUESTIONS = [
     ]
   },
   {
-    ...SEC_C, code: 'Q10', text: 'What is your level in Python?',
+    ...SEC_C, code: 'Q11', text: 'What is your level in Python?',
     type: 'radio', metricTags: ['technicalReadiness'],
     options: [
       opt('Comfortable — I can write programs with loops, functions and use libraries', 3),
@@ -126,7 +143,7 @@ const QUESTIONS = [
     ]
   },
   {
-    ...SEC_C, code: 'Q11', text: 'Have you used pandas / NumPy or any data library?',
+    ...SEC_C, code: 'Q12', text: 'Have you used pandas / NumPy or any data library?',
     type: 'radio', metricTags: ['technicalReadiness'],
     options: [
       opt('Yes — I have used them in projects to clean and analyse data', 3),
@@ -136,7 +153,7 @@ const QUESTIONS = [
     ]
   },
   {
-    ...SEC_C, code: 'Q12', text: 'Have you worked with Excel / Google Sheets for data tasks?',
+    ...SEC_C, code: 'Q13', text: 'Have you worked with Excel / Google Sheets for data tasks?',
     type: 'radio', metricTags: ['technicalReadiness'],
     options: [
       opt('Yes — pivot tables, VLOOKUP/XLOOKUP, charts, formulas', 3),
@@ -146,7 +163,7 @@ const QUESTIONS = [
     ]
   },
   {
-    ...SEC_C, code: 'Q13',
+    ...SEC_C, code: 'Q14',
     text: 'Have you used any BI / visualization tool (Power BI, Tableau, Looker Studio)?',
     type: 'radio', metricTags: ['technicalReadiness'],
     options: [
@@ -157,7 +174,7 @@ const QUESTIONS = [
     ]
   },
   {
-    ...SEC_C, code: 'Q14',
+    ...SEC_C, code: 'Q15',
     text: 'Do you know any of these data engineering concepts: ETL, data pipelines, data warehouse?',
     type: 'radio', metricTags: ['technicalReadiness'],
     options: [
@@ -170,7 +187,7 @@ const QUESTIONS = [
 
   // ── Section D — What You Have Already Done ─────────────────────────────
   {
-    ...SEC_D, code: 'Q15',
+    ...SEC_D, code: 'Q16',
     text: 'Have you done any project using real data (college or personal)?',
     type: 'radio', metricTags: ['technicalReadiness'],
     options: [
@@ -181,7 +198,7 @@ const QUESTIONS = [
     ]
   },
   {
-    ...SEC_D, code: 'Q16',
+    ...SEC_D, code: 'Q17',
     text: 'Have you done any internship or training in a data-related area?',
     type: 'radio', metricTags: ['technicalReadiness', 'placementReadiness'],
     options: [
@@ -192,7 +209,7 @@ const QUESTIONS = [
     ]
   },
   {
-    ...SEC_D, code: 'Q17',
+    ...SEC_D, code: 'Q18',
     text: 'Have you completed any online course / certification in data skills?',
     type: 'radio', metricTags: ['technicalReadiness', 'learningAttitude'],
     options: [
@@ -203,7 +220,7 @@ const QUESTIONS = [
     ]
   },
   {
-    ...SEC_D, code: 'Q18',
+    ...SEC_D, code: 'Q19',
     text: 'Do you practise coding / SQL on any platform (HackerRank, LeetCode, StrataScratch, Kaggle etc.)?',
     type: 'radio', metricTags: ['learningAttitude', 'motivation'],
     options: [
@@ -214,7 +231,7 @@ const QUESTIONS = [
     ]
   },
   {
-    ...SEC_D, code: 'Q19',
+    ...SEC_D, code: 'Q20',
     text: 'In the last 1 month, how many hours per week did you spend learning data skills?',
     type: 'radio', metricTags: ['learningAttitude', 'motivation'],
     options: [
@@ -224,10 +241,26 @@ const QUESTIONS = [
       opt('Almost none', 0)
     ]
   },
+  {
+    ...SEC_D, code: 'Q21',
+    text: 'Have you done any upskilling course (in any field, not only data)?',
+    type: 'radio', allowOther: true, metricTags: ['learningAttitude'],
+    options: [
+      opt('Yes — completed a certification / upskilling course', 3),
+      opt('Yes — currently doing one', 2),
+      opt('No, but I am planning to start one', 1),
+      opt('No, not yet', 0)
+    ]
+  },
+  {
+    ...SEC_D, code: 'Q22',
+    text: 'If yes — which course did you do, where did you do it, and when (month/year)?',
+    type: 'textarea', required: false, metricTags: []
+  },
 
   // ── Section E — Do You Know What This Job Involves? ────────────────────
   {
-    ...SEC_E, code: 'Q20', text: 'What does a Data Analyst mainly do? (choose the BEST answer)',
+    ...SEC_E, code: 'Q23', text: 'What does a Data Analyst mainly do? (choose the BEST answer)',
     type: 'radio', metricTags: ['careerClarity'],
     options: [
       opt('Collects, cleans and analyses data to find insights and help business decisions', 3),
@@ -237,7 +270,7 @@ const QUESTIONS = [
     ]
   },
   {
-    ...SEC_E, code: 'Q21', text: 'What does a Data Engineer mainly do? (choose the BEST answer)',
+    ...SEC_E, code: 'Q24', text: 'What does a Data Engineer mainly do? (choose the BEST answer)',
     type: 'radio', metricTags: ['careerClarity'],
     options: [
       opt('Builds and maintains pipelines and systems that move and store data reliably', 3),
@@ -247,7 +280,7 @@ const QUESTIONS = [
     ]
   },
   {
-    ...SEC_E, code: 'Q22', text: 'Do you know the typical day-to-day tools for the role you chose?',
+    ...SEC_E, code: 'Q25', text: 'Do you know the typical day-to-day tools for the role you chose?',
     type: 'radio', metricTags: ['careerClarity'],
     options: [
       opt('Yes — I can name the main tools and have tried most of them', 3),
@@ -259,7 +292,7 @@ const QUESTIONS = [
 
   // ── Section F — Learning Ability & Work Style ──────────────────────────
   {
-    ...SEC_F, code: 'Q23',
+    ...SEC_F, code: 'Q26',
     text: 'When you face a technical problem you cannot solve, what do you usually do?',
     type: 'radio', metricTags: ['learningAttitude'],
     options: [
@@ -270,7 +303,7 @@ const QUESTIONS = [
     ]
   },
   {
-    ...SEC_F, code: 'Q24',
+    ...SEC_F, code: 'Q27',
     text: 'How do you feel about learning new tools continuously (this field changes fast)?',
     type: 'radio', metricTags: ['learningAttitude', 'motivation'],
     options: [
@@ -281,7 +314,7 @@ const QUESTIONS = [
     ]
   },
   {
-    ...SEC_F, code: 'Q25',
+    ...SEC_F, code: 'Q28',
     text: 'How comfortable are you explaining your work (e.g., presenting analysis to a team)?',
     type: 'radio', metricTags: ['communicationReadiness', 'confidence'],
     options: [
@@ -294,7 +327,7 @@ const QUESTIONS = [
 
   // ── Section G — Commitment & Practical Readiness ───────────────────────
   {
-    ...SEC_G, code: 'Q26', text: 'If selected, when can you join?',
+    ...SEC_G, code: 'Q29', text: 'If selected, when can you join?',
     type: 'radio', metricTags: ['placementReadiness'],
     options: [
       opt('Immediately / within 2 weeks', 3),
@@ -304,7 +337,7 @@ const QUESTIONS = [
     ]
   },
   {
-    ...SEC_G, code: 'Q27',
+    ...SEC_G, code: 'Q30',
     text: 'Are you preparing for higher studies (M.Tech/MS/MBA) or government exams right now?',
     type: 'radio', metricTags: ['riskLevel', 'motivation'],
     options: [
@@ -315,7 +348,7 @@ const QUESTIONS = [
     ]
   },
   {
-    ...SEC_G, code: 'Q28', text: 'Are you willing to work from office (if the role requires it)?',
+    ...SEC_G, code: 'Q31', text: 'Are you willing to work from office (if the role requires it)?',
     type: 'radio', allowOther: true, metricTags: ['placementReadiness'],
     options: [
       opt('Yes, fully', 3),
@@ -327,7 +360,7 @@ const QUESTIONS = [
 
   // ── Section H — Self-Rating ────────────────────────────────────────────
   {
-    ...SEC_H, code: 'Q29',
+    ...SEC_H, code: 'Q32',
     text: 'Rate your OVERALL technical readiness for this role, honestly.',
     type: 'radio', metricTags: ['confidence'],
     options: [
@@ -338,7 +371,7 @@ const QUESTIONS = [
     ]
   },
   {
-    ...SEC_H, code: 'Q30',
+    ...SEC_H, code: 'Q33',
     text: 'If we ask you in the interview to write a simple SQL join or a Python loop on the spot, how would you feel?',
     type: 'radio', metricTags: ['confidence', 'technicalReadiness'],
     options: [
@@ -355,7 +388,12 @@ module.exports = async function seedCounsellingQuestions() {
   if (count > 0) return; // already seeded — questions are managed from the admin UI
 
   await CounsellingQuestion.insertMany(
-    QUESTIONS.map((q, i) => ({ ...q, order: (i + 1) * 10, required: true, active: true }))
+    QUESTIONS.map((q, i) => ({
+      ...q,
+      order: (i + 1) * 10,
+      required: q.required !== undefined ? q.required : true,
+      active: true
+    }))
   );
   console.log(`✅  Seeded ${QUESTIONS.length} counselling questions`);
 };

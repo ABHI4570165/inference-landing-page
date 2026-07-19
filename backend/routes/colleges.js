@@ -1,6 +1,6 @@
 const router = require('express').Router();
 const College = require('../models/College');
-const auth = require('../middleware/auth');
+const auth = require('../config/auth');
 
 // Public: GET all colleges
 router.get('/', async (req, res) => {

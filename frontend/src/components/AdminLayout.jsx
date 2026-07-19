@@ -1,5 +1,6 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { ADMIN_LOGIN, ADMIN_DASHBOARD, ADMIN_ATTENDANCE, ADMIN_ATTENDANCE_HISTORY, ADMIN_COUNSELLING, ADMIN_COLLEGES, ADMIN_RECEPTION } from '../utils/routes'
 
 export default function AdminLayout({ children }) {
   const { admin, logout } = useAuth()
@@ -8,15 +9,16 @@ export default function AdminLayout({ children }) {
 
   function handleLogout() {
     logout()
-    navigate('/admin/login')
+    navigate(ADMIN_LOGIN)
   }
 
   const navItems = [
-    { path: '/admin/dashboard', label: 'Applications', icon: '📋' },
-    { path: '/admin/attendance', label: 'Attendance', icon: '✅' },
-    { path: '/admin/attendance/history', label: 'History', icon: '🗓️' },
-    { path: '/admin/counselling', label: 'Counselling', icon: '🧭', prefix: true },
-    { path: '/admin/colleges', label: 'Colleges', icon: '🏛️' }
+    { path: ADMIN_DASHBOARD, label: 'Applications', icon: '📋' },
+    { path: ADMIN_ATTENDANCE, label: 'Attendance', icon: '✅' },
+    { path: ADMIN_ATTENDANCE_HISTORY, label: 'History', icon: '🗓️' },
+    { path: ADMIN_RECEPTION, label: 'Reception', icon: '📸' },
+    { path: ADMIN_COUNSELLING, label: 'Counselling', icon: '🧭', prefix: true },
+    { path: ADMIN_COLLEGES, label: 'Colleges', icon: '🏛️' }
   ]
 
   return (
@@ -26,9 +28,7 @@ export default function AdminLayout({ children }) {
         <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-full bg-brand-500 flex items-center justify-center">
-                <span className="text-white font-bold text-sm">M</span>
-              </div>
+              <img src="/mandi-logo.png" alt="M H Foundation" className="w-8 h-8 object-contain bg-white rounded-full p-0.5" />
               <span className="font-heading font-bold text-sm hidden sm:block">Admin Panel</span>
             </div>
             <nav className="flex gap-1 flex-wrap">
