@@ -24,6 +24,8 @@ export default function AdminCounsellingResponses() {
   const [colleges, setColleges] = useState([])
   const [filters, setFilters] = useState({ college: '', status: '', from: '', to: '', search: '' })
   const [searchInput, setSearchInput] = useState('')
+  const [noteModal, setNoteModal] = useState(null) // { id, name, draft }
+  const [savingNote, setSavingNote] = useState(false)
 
   useEffect(() => {
     API.get('/api/attendance/colleges').then(r => setColleges(r.data)).catch(() => {})
@@ -61,6 +63,24 @@ export default function AdminCounsellingResponses() {
       setTotal(t => t - 1)
     } catch (err) {
       alert(err.response?.data?.message || 'Delete failed')
+    }
+  }
+
+  function openNoteModal(e, r) {
+    e.stopPropagation()
+    setNoteModal({ id: r._id, name: r.name, draft: r.gdCounsellorOpinion?.text || '' })
+  }
+
+  async function saveNote() {
+    setSavingNote(true)
+    try {
+      const res = await API.put(`/api/admin/counselling/responses/${noteModal.id}/gd-opinion`, { text: noteModal.draft })
+      setRows(prev => prev.map(row => row._id === noteModal.id ? { ...row, gdCounsellorOpinion: res.data.gdCounsellorOpinion } : row))
+      setNoteModal(null)
+    } catch (err) {
+      alert(err.response?.data?.message || 'Failed to save note')
+    } finally {
+      setSavingNote(false)
     }
   }
 
@@ -226,15 +246,28 @@ export default function AdminCounsellingResponses() {
                 </td>
                 <td className="px-4 py-3 font-semibold text-gray-800">{r.scores?.overall ?? '—'}</td>
                 <td className="px-4 py-3">
-                  <button
-                    onClick={e => handleDelete(e, r)}
-                    title="Delete Response — student can refill from scratch"
-                    className="p-1.5 rounded hover:bg-red-50 text-red-500 transition"
-                  >
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                    </svg>
-                  </button>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={e => openNoteModal(e, r)}
+                      title={r.gdCounsellorOpinion?.text ? 'Edit GD Counsellor note' : 'Add GD Counsellor note'}
+                      className={`p-1.5 rounded transition ${
+                        r.gdCounsellorOpinion?.text ? 'bg-brand-50 text-brand-600 hover:bg-brand-100' : 'text-gray-400 hover:bg-gray-100 hover:text-brand-600'
+                      }`}
+                    >
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                      </svg>
+                    </button>
+                    <button
+                      onClick={e => handleDelete(e, r)}
+                      title="Delete Response — student can refill from scratch"
+                      className="p-1.5 rounded hover:bg-red-50 text-red-500 transition"
+                    >
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
@@ -248,6 +281,35 @@ export default function AdminCounsellingResponses() {
           <button className="btn-secondary text-sm" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>← Prev</button>
           <span className="text-sm text-gray-500 px-2">Page {page} of {pages}</span>
           <button className="btn-secondary text-sm" disabled={page >= pages} onClick={() => setPage(p => p + 1)}>Next →</button>
+        </div>
+      )}
+
+      {/* ── GD Counsellor note modal ── */}
+      {noteModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-start justify-center p-4 overflow-y-auto" onClick={() => setNoteModal(null)}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg my-8" onClick={e => e.stopPropagation()}>
+            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+              <h3 className="font-heading font-bold text-lg text-gray-800">GD Counsellor Opinion — {noteModal.name}</h3>
+              <button type="button" className="text-gray-400 hover:text-gray-600 text-2xl leading-none" onClick={() => setNoteModal(null)}>&times;</button>
+            </div>
+            <div className="p-6">
+              <textarea
+                className="form-input min-h-[140px]"
+                placeholder="Type the counsellor's opinion from meeting this student in person…"
+                maxLength={5000}
+                autoFocus
+                value={noteModal.draft}
+                onChange={e => setNoteModal(m => ({ ...m, draft: e.target.value }))}
+              />
+              <p className="text-xs text-gray-400 mt-2">This appears verbatim on the student's report page, alongside the AI-generated report.</p>
+            </div>
+            <div className="bg-gray-50 px-6 py-4 flex justify-end gap-3 border-t border-gray-100 rounded-b-2xl">
+              <button className="btn-secondary text-sm" onClick={() => setNoteModal(null)} disabled={savingNote}>Cancel</button>
+              <button className="btn-primary text-sm" onClick={saveNote} disabled={savingNote}>
+                {savingNote ? <><Spinner /> Saving…</> : 'Save Opinion'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </AdminLayout>

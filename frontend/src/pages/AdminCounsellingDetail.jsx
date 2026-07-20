@@ -21,6 +21,9 @@ export default function AdminCounsellingDetail() {
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(null) // 'unlock' | 'regenerate' | 'delete'
   const [message, setMessage] = useState(null)
+  const [editingOpinion, setEditingOpinion] = useState(false)
+  const [opinionDraft, setOpinionDraft] = useState('')
+  const [savingOpinion, setSavingOpinion] = useState(false)
 
   const load = useCallback(async () => {
     try {
@@ -64,6 +67,24 @@ export default function AdminCounsellingDetail() {
       setMessage({ type: 'error', text: err.response?.data?.message || 'Report generation failed' })
     } finally {
       setBusy(null)
+    }
+  }
+
+  function startEditOpinion() {
+    setOpinionDraft(data.response.gdCounsellorOpinion?.text || '')
+    setEditingOpinion(true)
+  }
+
+  async function handleSaveOpinion() {
+    setSavingOpinion(true)
+    try {
+      const res = await API.put(`/api/admin/counselling/responses/${id}/gd-opinion`, { text: opinionDraft })
+      setData(d => ({ ...d, response: { ...d.response, gdCounsellorOpinion: res.data.gdCounsellorOpinion } }))
+      setEditingOpinion(false)
+    } catch (err) {
+      setMessage({ type: 'error', text: err.response?.data?.message || 'Failed to save counsellor opinion' })
+    } finally {
+      setSavingOpinion(false)
     }
   }
 
@@ -213,6 +234,48 @@ export default function AdminCounsellingDetail() {
           </div>
         </div>
       )}
+
+      {/* ── GD Counsellor Opinion — human-written, shown verbatim as part of the final report ── */}
+      <div className="card mb-5 border-brand-200 bg-brand-50/40">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="font-heading font-bold text-gray-800">GD Counsellor Opinion</h3>
+          {!editingOpinion && (
+            <button className="btn-secondary text-xs !px-3 !py-1.5 print-hide" onClick={startEditOpinion}>
+              {r.gdCounsellorOpinion?.text ? 'Edit' : '+ Add Opinion'}
+            </button>
+          )}
+        </div>
+
+        {editingOpinion ? (
+          <div className="print-hide">
+            <textarea
+              className="form-input min-h-[120px]"
+              placeholder="Type the GD counsellor's opinion from meeting this student in person…"
+              maxLength={5000}
+              value={opinionDraft}
+              onChange={e => setOpinionDraft(e.target.value)}
+              autoFocus
+            />
+            <div className="flex justify-end gap-2 mt-2">
+              <button className="btn-secondary text-sm" onClick={() => setEditingOpinion(false)} disabled={savingOpinion}>Cancel</button>
+              <button className="btn-primary text-sm" onClick={handleSaveOpinion} disabled={savingOpinion}>
+                {savingOpinion ? <><Spinner /> Saving…</> : 'Save Opinion'}
+              </button>
+            </div>
+          </div>
+        ) : r.gdCounsellorOpinion?.text ? (
+          <>
+            <p className="text-sm leading-relaxed whitespace-pre-line text-gray-800">{r.gdCounsellorOpinion.text}</p>
+            {r.gdCounsellorOpinion.addedAt && (
+              <p className="text-xs text-gray-400 mt-2 print-hide">
+                — {r.gdCounsellorOpinion.addedBy || 'admin'}, {new Date(r.gdCounsellorOpinion.addedAt).toLocaleString()}
+              </p>
+            )}
+          </>
+        ) : (
+          <p className="text-sm text-gray-400 italic">No counsellor opinion added yet.</p>
+        )}
+      </div>
 
       {/* ── AI report ── */}
       {report?.status === 'completed' ? (

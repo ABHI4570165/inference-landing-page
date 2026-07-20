@@ -69,7 +69,16 @@ const counsellingResponseSchema = new mongoose.Schema({
   // Admin unlock trail — unlocking flips status back to in_progress so the
   // student can revise and resubmit for the same attendance date
   unlockedBy: { type: String, trim: true },
-  unlockedAt: { type: Date }
+  unlockedAt: { type: Date },
+
+  // Free-text opinion typed by the GD (Group Discussion) counsellor after
+  // meeting the student in person. Stored and shown verbatim — never passed
+  // through the AI — alongside the AI-generated report on the admin detail page.
+  gdCounsellorOpinion: {
+    text:    { type: String, trim: true, maxLength: 5000 },
+    addedBy: { type: String, trim: true },
+    addedAt: { type: Date }
+  }
 }, { timestamps: true });
 
 // One counselling response per student per attendance session/date

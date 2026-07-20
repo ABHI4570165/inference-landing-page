@@ -166,7 +166,8 @@ router.get('/responses', auth, async (req, res) => {
                 attendanceDate: 1, status: 1, completionPercent: 1,
                 totalScore: 1, maxScore: 1, submittedAt: 1, updatedAt: 1,
                 reportStatus: '$report.status',
-                scores: '$report.scores'
+                scores: '$report.scores',
+                gdCounsellorOpinion: 1
               }
             }
           ]
@@ -253,6 +254,34 @@ router.post('/responses/:id/unlock', auth, async (req, res) => {
     res.json({ message: 'Unlocked — the student can now revise and resubmit', response });
   } catch (err) {
     console.error('[POST counselling/responses/:id/unlock]', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// PUT /api/admin/counselling/responses/:id/gd-opinion — save the GD counsellor's
+// free-text opinion after meeting the student. Stored and shown verbatim —
+// independent of the AI report, and can be added/edited any time.
+router.put('/responses/:id/gd-opinion', auth, async (req, res) => {
+  try {
+    const response = await CounsellingResponse.findById(req.params.id);
+    if (!response) return res.status(404).json({ message: 'Response not found' });
+
+    const text = String(req.body.text || '').trim().slice(0, 5000);
+    const before = response.gdCounsellorOpinion ? response.gdCounsellorOpinion.toObject() : null;
+
+    response.set({
+      gdCounsellorOpinion: {
+        text,
+        addedBy: req.admin?.email,
+        addedAt: new Date()
+      }
+    });
+    await response.save();
+
+    logAudit('response.gdOpinion.update', 'StudentCounselling', response._id, req.admin?.email, before, response.gdCounsellorOpinion.toObject());
+    res.json({ message: 'Counsellor opinion saved', gdCounsellorOpinion: response.gdCounsellorOpinion });
+  } catch (err) {
+    console.error('[PUT counselling/responses/:id/gd-opinion]', err);
     res.status(500).json({ message: 'Server error' });
   }
 });
