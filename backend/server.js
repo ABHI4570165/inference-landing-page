@@ -44,8 +44,21 @@ app.set('trust proxy', 1);
 // from a different origin and fetches API responses cross-origin.
 app.use(helmet({ crossOriginResourcePolicy: false }));
 
+// FRONTEND_URL may be a single origin or a comma-separated list (e.g. when
+// more than one deployed frontend — Vercel, a Hostinger subdomain, etc. —
+// needs to call this same API). Unset defaults to '*' (open), same as before.
+const allowedOrigins = (process.env.FRONTEND_URL || '')
+  .split(',')
+  .map(o => o.trim())
+  .filter(Boolean);
+
 app.use(cors({
-  origin: process.env.FRONTEND_URL || '*',
+  origin: allowedOrigins.length
+    ? (origin, cb) => {
+        if (!origin || allowedOrigins.includes(origin)) return cb(null, true);
+        cb(new Error('Not allowed by CORS'));
+      }
+    : '*',
   credentials: true
 }));
 
