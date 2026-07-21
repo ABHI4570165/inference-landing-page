@@ -11,6 +11,12 @@ const { generateReport } = require('../services/aiReport');
 
 const DATE_RX = /^\d{4}-\d{2}-\d{2}$/;
 
+// IST calendar-day boundaries for a 'YYYY-MM-DD' string, as real Date
+// objects — used to filter submittedAt (a timestamp) by the same civil day
+// convention attendance dates already use elsewhere in this app.
+function istDayStart(dateStr) { return new Date(`${dateStr}T00:00:00.000+05:30`); }
+function istDayEnd(dateStr)   { return new Date(`${dateStr}T23:59:59.999+05:30`); }
+
 function logAudit(action, entityType, entityId, admin, before, after, meta) {
   AuditLog.create({ action, entityType, entityId, admin, before, after, meta })
     .catch(err => console.error('[AuditLog]', err));
@@ -132,10 +138,14 @@ router.get('/responses', auth, async (req, res) => {
     if (req.query.status && ['in_progress', 'submitted'].includes(req.query.status)) {
       match.status = req.query.status;
     }
+    // Filters by the day the response was actually filled (submittedAt), not
+    // the attendance session it's tied to — those can differ (see
+    // istDayStart/istDayEnd above). In-progress responses have no submittedAt
+    // yet, so a date filter naturally only matches completed ones.
     if (DATE_RX.test(req.query.from || '') || DATE_RX.test(req.query.to || '')) {
-      match.attendanceDate = {};
-      if (DATE_RX.test(req.query.from || '')) match.attendanceDate.$gte = req.query.from;
-      if (DATE_RX.test(req.query.to || ''))   match.attendanceDate.$lte = req.query.to;
+      match.submittedAt = {};
+      if (DATE_RX.test(req.query.from || '')) match.submittedAt.$gte = istDayStart(req.query.from);
+      if (DATE_RX.test(req.query.to || ''))   match.submittedAt.$lte = istDayEnd(req.query.to);
     }
     if (req.query.search) {
       const rx = new RegExp(String(req.query.search).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
@@ -164,7 +174,7 @@ router.get('/responses', auth, async (req, res) => {
               $project: {
                 name: 1, email: 1, phone: 1, college: 1, branch: 1,
                 attendanceDate: 1, status: 1, completionPercent: 1,
-                totalScore: 1, maxScore: 1, submittedAt: 1, updatedAt: 1,
+                totalScore: 1, maxScore: 1, submittedAt: 1, updatedAt: 1, createdAt: 1,
                 reportStatus: '$report.status',
                 scores: '$report.scores',
                 gdCounsellorOpinion: 1

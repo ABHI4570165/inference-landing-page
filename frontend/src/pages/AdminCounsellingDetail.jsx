@@ -6,6 +6,14 @@ import AdminLayout from '../components/AdminLayout'
 import Spinner from '../components/Spinner'
 import { Meter } from '../components/Charts'
 
+// The calendar day (IST) a response was actually filled — distinct from
+// attendanceDate, which is the attendance SESSION it's tied to and can be an
+// older date if the student's last "Present" mark wasn't from today.
+function istDate(dateInput) {
+  if (!dateInput) return '—'
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date(dateInput))
+}
+
 const BEHAVIOUR_LABELS = {
   learningStyle: 'Learning Style', problemSolving: 'Problem Solving',
   decisionMaking: 'Decision Making', confidence: 'Confidence',
@@ -131,7 +139,7 @@ export default function AdminCounsellingDetail() {
         <div>
           <Link to={ADMIN_COUNSELLING_RESPONSES} className="text-sm text-brand-600 hover:underline">← Back to responses</Link>
           <h2 className="font-heading text-2xl font-bold text-gray-800 mt-1">{r.name}</h2>
-          <p className="text-gray-500 text-sm">{r.college}{r.branch ? ` • ${r.branch}` : ''} • Session {r.attendanceDate}</p>
+          <p className="text-gray-500 text-sm">{r.college}{r.branch ? ` • ${r.branch}` : ''} • Filled {istDate(r.submittedAt || r.createdAt)}</p>
         </div>
         <div className="flex flex-wrap gap-2">
           {r.status === 'submitted' && (
@@ -186,7 +194,8 @@ export default function AdminCounsellingDetail() {
           <Info label="Phone" value={r.phone} />
           <Info label="College" value={r.college} />
           <Info label="Branch" value={r.branch || '—'} />
-          <Info label="Session Date" value={r.attendanceDate} />
+          <Info label="Filled On" value={istDate(r.submittedAt || r.createdAt)} />
+          <Info label="Attendance Session" value={r.attendanceDate} />
           <Info label="Status" value={r.status === 'submitted' ? `Submitted ${r.submittedAt ? new Date(r.submittedAt).toLocaleString() : ''}` : 'In progress'} />
           <Info label="Questionnaire Score" value={`${r.totalScore} / ${r.maxScore} (${r.completionPercent}% complete)`} />
         </div>

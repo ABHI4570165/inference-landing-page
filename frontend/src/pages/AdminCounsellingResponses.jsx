@@ -210,7 +210,7 @@ export default function AdminCounsellingResponses() {
         <table className="w-full text-sm">
           <thead>
             <tr className="bg-gray-50 border-b border-gray-200">
-              {['Student', 'College', 'Date', 'Status', 'Completion', 'Score', 'AI Report', 'Overall', 'Actions'].map(h => (
+              {['Student', 'College', 'Filled On', 'Status', 'Completion', 'Score', 'AI Report', 'Overall', 'Actions'].map(h => (
                 <th key={h} className="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wide whitespace-nowrap">{h}</th>
               ))}
             </tr>
@@ -229,7 +229,12 @@ export default function AdminCounsellingResponses() {
                   <p className="text-xs text-gray-400">{r.email}</p>
                 </td>
                 <td className="px-4 py-3 text-gray-600 max-w-[180px] truncate">{r.college}</td>
-                <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{r.attendanceDate}</td>
+                <td className="px-4 py-3 text-gray-600 whitespace-nowrap">
+                  {istDate(r.submittedAt || r.createdAt)}
+                  {r.attendanceDate && r.attendanceDate !== istDate(r.submittedAt || r.createdAt) && (
+                    <p className="text-xs text-gray-400">session {r.attendanceDate}</p>
+                  )}
+                </td>
                 <td className="px-4 py-3">
                   <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
                     r.status === 'submitted' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
@@ -319,6 +324,13 @@ export default function AdminCounsellingResponses() {
 function today() {
   const d = new Date()
   return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10)
+}
+// The calendar day (IST) a response was actually filled — distinct from
+// attendanceDate, which is the attendance SESSION it's tied to and can be an
+// older date if the student's last "Present" mark wasn't from today.
+function istDate(dateInput) {
+  if (!dateInput) return '—'
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date(dateInput))
 }
 function downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob)
