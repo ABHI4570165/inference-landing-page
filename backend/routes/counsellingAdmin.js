@@ -200,7 +200,7 @@ router.get('/responses', auth, async (req, res) => {
 router.get('/responses/:id', auth, async (req, res) => {
   try {
     const response = await CounsellingResponse.findById(req.params.id)
-      .populate('student', 'name email phone college course customCourse branch customBranch city state')
+      .populate('student', 'name email phone college course customCourse branch customBranch city state registrationPhoto')
       .lean();
     if (!response) return res.status(404).json({ message: 'Response not found' });
 

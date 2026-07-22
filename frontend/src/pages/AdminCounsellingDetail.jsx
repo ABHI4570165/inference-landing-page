@@ -32,6 +32,14 @@ export default function AdminCounsellingDetail() {
   const [editingOpinion, setEditingOpinion] = useState(false)
   const [opinionDraft, setOpinionDraft] = useState('')
   const [savingOpinion, setSavingOpinion] = useState(false)
+  const [photoOpen, setPhotoOpen] = useState(false)
+
+  useEffect(() => {
+    if (!photoOpen) return
+    const onKey = e => { if (e.key === 'Escape') setPhotoOpen(false) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [photoOpen])
 
   const load = useCallback(async () => {
     try {
@@ -188,7 +196,35 @@ export default function AdminCounsellingDetail() {
       {/* ── basic details ── */}
       <div className="card mb-5">
         <h3 className="font-heading font-bold text-gray-800 mb-3">Basic Details</h3>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+        <div className="flex flex-col sm:flex-row gap-5">
+          {r.student?.registrationPhoto ? (
+            <button
+              type="button"
+              onClick={() => setPhotoOpen(true)}
+              className="flex-shrink-0 w-28 h-28 rounded-xl border border-gray-200 bg-gray-50 overflow-hidden group relative print-hide"
+              title="Click to enlarge"
+            >
+              <img src={r.student.registrationPhoto} alt={`${r.name} — registration photo`}
+                className="w-full h-full object-contain" />
+              <span className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition flex items-center justify-center">
+                <span className="opacity-0 group-hover:opacity-100 transition text-white text-xs font-semibold">Enlarge</span>
+              </span>
+            </button>
+          ) : (
+            <div className="flex-shrink-0 w-28 h-28 rounded-xl border border-dashed border-gray-300 bg-gray-50 flex flex-col items-center justify-center gap-1 print-hide">
+              <svg className="w-8 h-8 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+              </svg>
+              <span className="text-[10px] text-gray-400 text-center px-2">No photo on file</span>
+            </div>
+          )}
+          {/* print-only static photo (the enlarge button/overlay above is screen-only) */}
+          {r.student?.registrationPhoto && (
+            <img src={r.student.registrationPhoto} alt={`${r.name} — registration photo`}
+              className="hidden print:block flex-shrink-0 w-28 h-28 rounded-xl border border-gray-200 object-contain" />
+          )}
+
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm flex-1">
           <Info label="Name" value={r.name} />
           <Info label="Email" value={r.email} />
           <Info label="Phone" value={r.phone} />
@@ -198,6 +234,7 @@ export default function AdminCounsellingDetail() {
           <Info label="Attendance Session" value={r.attendanceDate} />
           <Info label="Status" value={r.status === 'submitted' ? `Submitted ${r.submittedAt ? new Date(r.submittedAt).toLocaleString() : ''}` : 'In progress'} />
           <Info label="Questionnaire Score" value={`${r.totalScore} / ${r.maxScore} (${r.completionPercent}% complete)`} />
+          </div>
         </div>
         {r.unlockedAt && (
           <p className="text-xs text-amber-600 mt-3">Unlocked for resubmission by {r.unlockedBy} on {new Date(r.unlockedAt).toLocaleString()}</p>
@@ -412,6 +449,32 @@ export default function AdminCounsellingDetail() {
           </div>
         ))}
       </div>
+
+      {/* ── enlarged photo lightbox ── */}
+      {photoOpen && r.student?.registrationPhoto && (
+        <div
+          className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4 print-hide"
+          onClick={() => setPhotoOpen(false)}
+        >
+          <button
+            type="button"
+            onClick={() => setPhotoOpen(false)}
+            className="absolute top-4 right-4 sm:top-6 sm:right-6 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition"
+            title="Close"
+          >
+            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+          <img
+            src={r.student.registrationPhoto}
+            alt={`${r.name} — registration photo`}
+            onClick={e => e.stopPropagation()}
+            className="max-w-[92vw] max-h-[88vh] object-contain rounded-lg shadow-2xl"
+          />
+          <p className="absolute bottom-6 left-1/2 -translate-x-1/2 text-white/70 text-sm">{r.name}</p>
+        </div>
+      )}
     </AdminLayout>
   )
 }
