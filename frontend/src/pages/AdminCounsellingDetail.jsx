@@ -233,7 +233,7 @@ export default function AdminCounsellingDetail() {
           <Info label="Filled On" value={istDate(r.submittedAt || r.createdAt)} />
           <Info label="Attendance Session" value={r.attendanceDate} />
           <Info label="Status" value={r.status === 'submitted' ? `Submitted ${r.submittedAt ? new Date(r.submittedAt).toLocaleString() : ''}` : 'In progress'} />
-          <Info label="Questionnaire Score" value={`${r.totalScore} / ${r.maxScore} (${r.completionPercent}% complete)`} />
+          <Info label="Questionnaire Score (Sections C & D)" value={`${r.totalScore} / ${r.maxScore} (${r.completionPercent}% complete)`} />
           </div>
         </div>
         {r.unlockedAt && (
@@ -333,6 +333,12 @@ export default function AdminCounsellingDetail() {
           <ReportSection title="Overall Personality">
             <p className="text-sm text-gray-600 leading-relaxed whitespace-pre-line">{report.overallPersonality}</p>
           </ReportSection>
+
+          {report.practicalExperience && (
+            <ReportSection title="Practical Experience — Project & Internship">
+              <p className="text-sm text-gray-600 leading-relaxed whitespace-pre-line">{report.practicalExperience}</p>
+            </ReportSection>
+          )}
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
             <ReportSection title="Technical Interest">

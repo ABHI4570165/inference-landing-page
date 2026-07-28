@@ -380,6 +380,19 @@ const QUESTIONS = [
       opt('I would struggle but attempt it', 1),
       opt('I would not be able to do it today', 0)
     ]
+  },
+
+  // ── Section D (appended) — Practical experience for the AI report's
+  // dedicated "Practical Experience" section ─────────────────────────────
+  {
+    ...SEC_D, code: 'Q34',
+    text: 'Describe your college project — what problem it solves, the tools/technologies you used, and your specific role in it.',
+    type: 'textarea', required: false, metricTags: []
+  },
+  {
+    ...SEC_D, code: 'Q35',
+    text: 'Where did you do your final year internship? Was it paid, stipend-based, or unpaid? What did you learn from it?',
+    type: 'textarea', required: false, metricTags: []
   }
 ];
 

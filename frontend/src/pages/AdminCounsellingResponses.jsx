@@ -98,7 +98,7 @@ export default function AdminCounsellingResponses() {
       Name: r.name, Email: r.email, Phone: r.phone, College: r.college,
       Branch: r.branch, Date: r.attendanceDate,
       'Completion %': r.completionPercent,
-      Score: `${r.totalScore}/${r.maxScore}`,
+      'Score (Sections C & D)': `${r.totalScore}/${r.maxScore}`,
       'Career Clarity': r.scores?.careerClarity ?? '',
       Confidence: r.scores?.confidence ?? '',
       'Technical Readiness': r.scores?.technicalReadiness ?? '',
@@ -210,7 +210,7 @@ export default function AdminCounsellingResponses() {
         <table className="w-full text-sm">
           <thead>
             <tr className="bg-gray-50 border-b border-gray-200">
-              {['Student', 'College', 'Filled On', 'Status', 'Completion', 'Score', 'AI Report', 'Overall', 'Actions'].map(h => (
+              {['Student', 'College', 'Filled On', 'Status', 'Completion', 'Score (C+D)', 'AI Report', 'Overall', 'Actions'].map(h => (
                 <th key={h} className="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wide whitespace-nowrap">{h}</th>
               ))}
             </tr>

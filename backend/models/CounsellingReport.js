@@ -70,6 +70,11 @@ const counsellingReportSchema = new mongoose.Schema({
   recommendedCareerPath: { type: String },
   recommendedTrainingPlan: { type: String },
 
+  // Dedicated section synthesizing the student's college project (Q34) and
+  // final-year internship (Q35) answers — kept separate from the general
+  // narrative sections above since it's grounded in two specific questions.
+  practicalExperience: { type: String },
+
   scores: { type: scoreSchema, default: {} },
 
   aiStatus: { type: String, enum: ['Completed', 'Fallback'], index: true },

@@ -74,9 +74,9 @@ function tierCommunication(score) {
   return 'average';
 }
 
-// Q5 — "Which role are you MORE interested in?" — direct single-select lookup
+// Q6 — "Which role are you MORE interested in?" — direct single-select lookup
 function inferCareerPath(response) {
-  const sel = (findAnswer(response, 'Q5')?.selected || []).join(' ').toLowerCase();
+  const sel = (findAnswer(response, 'Q6')?.selected || []).join(' ').toLowerCase();
   if (sel.includes('data analyst') && sel.includes('data engineer')) return 'Data Analyst & Data Engineer';
   if (sel.includes('data analyst')) return 'Data Analyst';
   if (sel.includes('data engineer')) return 'Data Engineer';
@@ -84,17 +84,33 @@ function inferCareerPath(response) {
   return 'Data Analytics / Data Engineering (still exploring)';
 }
 
-// Q16 — "Have you done any internship or training in a data-related area?" —
+// Q17 — "Have you done any internship or training in a data-related area?" —
 // treat a meaningfully completed internship/training (2+ pts) as "has experience"
 function inferInternshipExperience(response) {
-  const ans = findAnswer(response, 'Q16');
+  const ans = findAnswer(response, 'Q17');
   return (ans?.points || 0) >= 2;
 }
 
-// Q27 — preparing for higher studies / government exams instead of this role
+// Q30 — preparing for higher studies / government exams instead of this role
 function inferAttritionRisk(response) {
-  const ans = findAnswer(response, 'Q27');
+  const ans = findAnswer(response, 'Q30');
   return (ans?.points || 0) === 0;
+}
+
+// Q34 (college project) / Q35 (final-year internship) — read directly since
+// these are free-text answers with no scoring; used only to build the
+// deterministic fallback's practicalExperience paragraph.
+function buildPracticalExperience(response) {
+  const project = findAnswer(response, 'Q34')?.otherText?.trim();
+  const internship = findAnswer(response, 'Q35')?.otherText?.trim();
+  const parts = [];
+  parts.push(project
+    ? `College project: ${project}`
+    : 'College project: not described by the student.');
+  parts.push(internship
+    ? `Final-year internship: ${internship}`
+    : 'Final-year internship: not completed / not described by the student.');
+  return parts.join(' ');
 }
 
 function buildStrengths(data) {
@@ -305,6 +321,7 @@ function buildFinalReport(response, questions, baseScores, fallbackReason) {
     skillGapAnalysis: `${data.codingLevel === 'beginner' ? 'Requires more practical coding practice and project experience.' : data.codingLevel === 'intermediate' ? 'Needs to deepen technical skills and apply them to real problems.' : 'Can polish existing skills with more challenging projects.'}`,
     recommendedCareerPath,
     recommendedTrainingPlan,
+    practicalExperience: buildPracticalExperience(response),
     // The deterministic rubric score, computed from this student's actual
     // question points (see computeMetricScores in aiReport.js) — always
     // varies per student, unlike a re-derived generic tier formula.

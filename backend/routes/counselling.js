@@ -251,9 +251,18 @@ async function buildAnswers(rawAnswers) {
     .filter(q => !answers.some(a => a.code === q.code))
     .map(q => q.code);
 
-  const totalScore = answers.reduce((s, a) => s + a.points, 0);
-  const maxScore = questions.reduce(
-    (s, q) => s + (q.options.length ? Math.max(...q.options.map(o => o.points || 0)) : 0), 0);
+  // The top-level "Questionnaire Score" only counts Sections C and D
+  // (Technical Exposure, What You Have Already Done) — every other section
+  // is still answered and still feeds the AI report's narrative, but doesn't
+  // contribute to this number. Per-answer points (above) are left untouched
+  // for every section, since those still drive the 9 AI Scores via metricTags.
+  const SCORED_SECTIONS = new Set(['C', 'D']);
+  const totalScore = answers
+    .filter(a => SCORED_SECTIONS.has(a.sectionKey))
+    .reduce((s, a) => s + a.points, 0);
+  const maxScore = questions
+    .filter(q => SCORED_SECTIONS.has(q.sectionKey))
+    .reduce((s, q) => s + (q.options.length ? Math.max(...q.options.map(o => o.points || 0)) : 0), 0);
 
   return { answers, completionPercent, missingRequired, totalScore, maxScore };
 }

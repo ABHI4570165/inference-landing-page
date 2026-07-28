@@ -1,7 +1,8 @@
-// Local LLM fallback via Ollama (http://localhost:11434) — runs on the same
-// machine as this backend. Used as a middle tier between Gemini and the local
-// rule-engine: if Gemini's quota/auth fails, try a real local model before
-// giving up to the crude deterministic fallback.
+// Local LLM via Ollama (http://localhost:11434) — runs on the same machine as
+// this backend. Second tier of the default chain: if Hugging Face fails, try
+// this real local model before giving up to the crude deterministic fallback.
+// Only reachable when running the backend locally (not from a deployed
+// backend like Render, since Ollama only runs on a laptop).
 const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'llama3.1:8b';
 const OLLAMA_TIMEOUT_MS = Number(process.env.OLLAMA_TIMEOUT_MS) || 180000; // local CPU inference is slow

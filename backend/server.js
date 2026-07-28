@@ -6,7 +6,6 @@ const cors      = require('cors');
 const helmet    = require('helmet');
 const rateLimit = require('express-rate-limit');
 const mongoSanitize = require('express-mongo-sanitize');
-const { validateGeminiConnection } = require('./services/geminiService');
 
 // ── Validate required env vars at startup ──────────────────────
 const REQUIRED_ENV = [
@@ -25,15 +24,8 @@ if (missing.length) {
 
 const app = express();
 
-const envLoaded = {
-  GEMINI_API_KEY: !!process.env.GEMINI_API_KEY,
-  GOOGLE_API_KEY: !!process.env.GOOGLE_API_KEY
-};
 console.log(`✓ Loaded env from ${path.join(__dirname, '.env')}`);
-console.log(`✓ GEMINI_API_KEY loaded: ${envLoaded.GEMINI_API_KEY ? 'YES' : 'NO'}`);
-if (envLoaded.GOOGLE_API_KEY) {
-  console.warn('⚠️ Detected deprecated GOOGLE_API_KEY; rename it to GEMINI_API_KEY in backend/.env');
-}
+console.log(`✓ HUGGINGFACE_API_KEY loaded: ${process.env.HUGGINGFACE_API_KEY ? 'YES' : 'NO'}`);
 
 // Behind a reverse proxy (Render/Railway/Nginx) — needed so rate limiting
 // sees the real client IP instead of the proxy's
@@ -147,19 +139,6 @@ mongoose.connect(process.env.MONGODB_URI)
     await require('./seedAdmin')();
     await require('./seedCounsellingQuestions')();
     await require('./backfillReceptionCheckins')();
-
-    if (process.env.GEMINI_API_KEY) {
-      if (process.env.GEMINI_STARTUP_VALIDATE === 'true') {
-        try {
-          await validateGeminiConnection();
-          console.log('Gemini connection successful.');
-        } catch (err) {
-          console.error('Gemini startup validation failed:', err.stack || err.message);
-        }
-      } else {
-        console.log('Gemini startup validation skipped. Set GEMINI_STARTUP_VALIDATE=true to enable it.');
-      }
-    }
 
     app.listen(PORT, () =>
       console.log(`✅  Server running on http://localhost:${PORT}`)

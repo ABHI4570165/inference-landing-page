@@ -1,21 +1,15 @@
-const crypto = require('crypto');
 const CounsellingReport = require('../models/CounsellingReport');
 const CounsellingQuestion = require('../models/CounsellingQuestion');
 const { buildFinalReport } = require('./localCounsellingEngine');
-const { sendGeminiPrompt } = require('./geminiService');
 const { sendOllamaPrompt, OLLAMA_MODEL } = require('./ollamaService');
 const { sendHuggingFacePrompt, HF_MODEL } = require('./huggingFaceService');
 
-const MAX_GEMINI_RETRIES = 2;
 const MAX_OLLAMA_RETRIES = 1; // local CPU inference is slow — don't retry aggressively
-const MAX_HF_RETRIES = 1;
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
+const MAX_HF_RETRIES = 2;
 const MAX_PROMPT_CHARS = 14000;
 const MAX_PROMPT_TOKENS = 2800;
-const PROMPT_DUPLICATE_WINDOW_MS = 60 * 1000;
 
 const reportGenerationLocks = new Map();
-const promptHistory = new Map();
 
 function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -25,7 +19,7 @@ function delay(ms) {
 // array of plain strings). LLMs occasionally drift from the requested shape
 // — e.g. returning [{ topic, duration }, ...] instead of a sentence — which
 // would otherwise fail Mongoose validation and discard an entire report.
-// Applies to both Gemini and Ollama output, since either can drift.
+// Applies to both Hugging Face and Ollama output, since either can drift.
 function toText(value) {
   if (value == null) return '';
   if (typeof value === 'string') return value.trim();
@@ -48,7 +42,7 @@ function estimateTokens(text) {
   return Math.max(1, Math.ceil(text.length / 4));
 }
 
-function buildGeminiPrompt(response, questions, baseScores, totalGot, totalMax) {
+function buildReportPrompt(response, questions, baseScores, totalGot, totalMax) {
   const answerData = response.answers.map(answer => {
     const question = questions.find(q => String(q._id) === String(answer.question));
     return {
@@ -73,14 +67,11 @@ function buildGeminiPrompt(response, questions, baseScores, totalGot, totalMax) 
     answers: answerData
   };
 
-  return `You are an experienced career counsellor. Given the student metadata and answers below, produce a JSON object only with these keys:\n` +
-    `overallPersonality, technicalInterest, careerReadiness, learningBehaviour, confidenceAnalysis, skillGapAnalysis, strengths, weaknesses, communicationAssessment, placementReadiness, recommendedCareerPath, recommendedTrainingPlan, counsellorRecommendation, careerFit, scores\n` +
-    `strengths and weaknesses should be arrays of short phrases. careerFit should be an array of objects with path and reason. scores should contain integer values for careerClarity, confidence, technicalReadiness, learningAttitude, placementReadiness, communicationReadiness, motivation, riskLevel, overall.\n` +
-    `Do not include markdown or extra explanation. Output valid JSON only.\n\n` +
-    `Student metadata and answers:\n${JSON.stringify(condensed, null, 2)}`;
+  return REPORT_PROMPT_INSTRUCTIONS +
+    `\n\nStudent metadata and answers:\n${JSON.stringify(condensed, null, 2)}`;
 }
 
-function buildCompressedGeminiPrompt(response, questions, baseScores, totalGot, totalMax) {
+function buildCompressedReportPrompt(response, questions, baseScores, totalGot, totalMax) {
   const condensed = {
     student: {
       id: String(response.student || 'unknown'),
@@ -105,35 +96,14 @@ function buildCompressedGeminiPrompt(response, questions, baseScores, totalGot, 
     })
   };
 
-  return `You are an experienced career counsellor. Given the student's answers below, produce a JSON object only with these keys:\n` +
-    `overallPersonality, technicalInterest, careerReadiness, learningBehaviour, confidenceAnalysis, skillGapAnalysis, strengths, weaknesses, communicationAssessment, placementReadiness, recommendedCareerPath, recommendedTrainingPlan, counsellorRecommendation, careerFit, scores\n` +
-    `strengths and weaknesses should be arrays of short phrases. careerFit should be an array of objects with path and reason. scores should contain integer values for careerClarity, confidence, technicalReadiness, learningAttitude, placementReadiness, communicationReadiness, motivation, riskLevel, overall.\n` +
-    `Do not include markdown or extra explanation. Output valid JSON only.\n\n` +
-    `Student metadata:\n${JSON.stringify(condensed.student, null, 2)}\n\n` +
+  return REPORT_PROMPT_INSTRUCTIONS +
+    `\n\nStudent metadata:\n${JSON.stringify(condensed.student, null, 2)}\n\n` +
     `Baseline scores:\n${JSON.stringify(condensed.baselineScores, null, 2)}\n\n` +
     `Questionnaire answer summary (JSON):\n${JSON.stringify(condensed.answers, null, 2)}`;
 }
 
 function shouldCompressPrompt(prompt) {
   return prompt.length > MAX_PROMPT_CHARS || estimateTokens(prompt) > MAX_PROMPT_TOKENS;
-}
-
-function prunePromptHistory() {
-  const now = Date.now();
-  for (const [hash, entry] of promptHistory.entries()) {
-    if (now - entry.timestamp > PROMPT_DUPLICATE_WINDOW_MS) promptHistory.delete(hash);
-  }
-}
-
-function recordPromptHash(prompt, response) {
-  const hash = crypto.createHash('sha256').update(prompt, 'utf8').digest('hex');
-  const now = Date.now();
-  const existing = promptHistory.get(hash);
-  if (existing) {
-    console.warn(`[Gemini][duplicate] detected duplicate prompt for response=${String(response._id)} student=${String(response.student)} within ${PROMPT_DUPLICATE_WINDOW_MS}ms`);
-  }
-  promptHistory.set(hash, { timestamp: now, responseId: String(response._id), studentId: String(response.student) });
-  prunePromptHistory();
 }
 
 function acquireReportLock(responseId) {
@@ -150,91 +120,15 @@ function releaseReportLock(responseId) {
   reportGenerationLocks.delete(String(responseId));
 }
 
-function logPromptStats(prompt, questions, response) {
-  const promptLength = prompt.length;
-  const estimatedTokens = estimateTokens(prompt);
-  const questionCount = questions.length;
-  const answerCount = response.answers.length;
-  console.info(`[Gemini][prompt] response=${String(response._id)} student=${String(response.student)} promptChars=${promptLength} estTokens=${estimatedTokens} questions=${questionCount} answers=${answerCount}`);
-}
 
-function isTransientGeminiError(err) {
-  const status = Number(err.status || err.response?.status || 0);
-  if (status >= 500 && status < 600) return true;
-  const transientMessages = ['timeout', 'timed out', 'network', 'ECONNRESET', 'ENOTFOUND', 'EAI_AGAIN', 'connection refused'];
-  const msg = String(err.message || '').toLowerCase();
-  return transientMessages.some(token => msg.includes(token));
-}
-
-async function callGemini(prompt, response, attempt) {
-  recordPromptHash(prompt, response);
-  return sendGeminiPrompt(prompt, GEMINI_MODEL, {
-    studentId: String(response.student),
-    responseId: String(response._id),
-    retryNumber: attempt
-  });
-}
-
-function sanitizeFallbackReason(err) {
-  const message = String(err?.message || err?.response?.statusText || err?.response?.data?.message || err?.response?.data || '').trim();
-  if (!message) {
-    return 'Gemini API unavailable; using local fallback.';
-  }
-
-  const lower = message.toLowerCase();
-  if (/quota|limit|rate limit|resource_exhausted|429/.test(lower)) {
-    return 'Gemini API quota limit reached; using local fallback.';
-  }
-  if (/api key|authentication|unauthorized|403|401|forbidden/.test(lower)) {
-    return 'Gemini API authentication error; using local fallback.';
-  }
-  if (/timeout|timed out|network|connection reset|econrreset|eai_again|enotfound/.test(lower)) {
-    return 'Gemini API request failed; using local fallback.';
-  }
-  return 'Gemini API unavailable; using local fallback.';
-}
-
-async function generateGeminiReport(response, questions, baseScores, totalGot, totalMax) {
-  let lastError = null;
-  let prompt = buildGeminiPrompt(response, questions, baseScores, totalGot, totalMax);
-  let compressed = false;
-
-  if (shouldCompressPrompt(prompt)) {
-    console.warn(`[Gemini][compress] prompt too large for response=${String(response._id)}; switching to structured JSON payload`);
-    prompt = buildCompressedGeminiPrompt(response, questions, baseScores, totalGot, totalMax);
-    compressed = true;
-  }
-
-  logPromptStats(prompt, questions, response);
-
-  for (let attempt = 1; attempt <= MAX_GEMINI_RETRIES; attempt += 1) {
-    try {
-      const output = await callGemini(prompt, response, attempt);
-      const parsed = JSON.parse(output);
-      return parsed;
-    } catch (err) {
-      lastError = err;
-      const status = Number(err.status || err.response?.status || 0);
-      console.warn(`[Gemini][attempt] response=${String(response._id)} student=${String(response.student)} attempt=${attempt} status=${status} error=${err.message || err}`);
-      if (attempt < MAX_GEMINI_RETRIES) {
-        await delay(1000 * attempt);
-        continue;
-      }
-      break;
-    }
-  }
-
-  throw lastError;
-}
-
-// ── Local LLM fallback (Ollama) ─────────────────────────────────────────────
-// Same prompt/JSON-shape as Gemini so the two AI sources are interchangeable
-// from generateReport's point of view. Tried only after Gemini fails, before
-// giving up to the deterministic local rule-engine.
+// ── Local LLM (Ollama) — second tier of the default chain ──────────────────
+// Same prompt/JSON-shape as Hugging Face, so the two AI sources are
+// interchangeable from generateReport's point of view. Only reachable when
+// running the backend on the same machine as Ollama (e.g. local dev).
 async function generateOllamaReport(response, questions, baseScores, totalGot, totalMax) {
-  let prompt = buildGeminiPrompt(response, questions, baseScores, totalGot, totalMax);
+  let prompt = buildReportPrompt(response, questions, baseScores, totalGot, totalMax);
   if (shouldCompressPrompt(prompt)) {
-    prompt = buildCompressedGeminiPrompt(response, questions, baseScores, totalGot, totalMax);
+    prompt = buildCompressedReportPrompt(response, questions, baseScores, totalGot, totalMax);
   }
 
   let lastError = null;
@@ -251,9 +145,10 @@ async function generateOllamaReport(response, questions, baseScores, totalGot, t
   throw lastError;
 }
 
-// ── Cloud LLM alternative (Hugging Face) ────────────────────────────────────
-// Same prompt/JSON-shape as Gemini/Ollama. Only used when explicitly selected
-// via AI_PROVIDER=huggingface — never part of the automatic fallback chain.
+// ── Cloud LLM (Hugging Face) — first tier of the default chain ─────────────
+// Same prompt/JSON-shape as Ollama. Retried once on timeout/transient
+// failure before falling to Ollama, since the free-tier router's latency
+// varies (seen anywhere from ~7s to a 60s timeout).
 function stripJsonFences(text) {
   const trimmed = text.trim();
   const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
@@ -261,9 +156,9 @@ function stripJsonFences(text) {
 }
 
 async function generateHuggingFaceReport(response, questions, baseScores, totalGot, totalMax) {
-  let prompt = buildGeminiPrompt(response, questions, baseScores, totalGot, totalMax);
+  let prompt = buildReportPrompt(response, questions, baseScores, totalGot, totalMax);
   if (shouldCompressPrompt(prompt)) {
-    prompt = buildCompressedGeminiPrompt(response, questions, baseScores, totalGot, totalMax);
+    prompt = buildCompressedReportPrompt(response, questions, baseScores, totalGot, totalMax);
   }
 
   let lastError = null;
@@ -274,7 +169,7 @@ async function generateHuggingFaceReport(response, questions, baseScores, totalG
     } catch (err) {
       lastError = err;
       console.warn(`[HuggingFace][attempt] response=${String(response._id)} student=${String(response.student)} attempt=${attempt} error=${err.message || err}`);
-      if (attempt < MAX_HF_RETRIES) continue;
+      if (attempt < MAX_HF_RETRIES) { await delay(1000 * attempt); continue; }
     }
   }
   throw lastError;
@@ -325,77 +220,36 @@ function computeMetricScores(response, questions) {
   return { scores, totalGot, totalMax };
 }
 
-// ── Claude structured-output schema ─────────────────────────────────────────
-const strList = { type: 'array', items: { type: 'string' } };
-const REPORT_SCHEMA = {
-  type: 'object',
-  additionalProperties: false,
-  required: [
-    'overallPersonality', 'technicalInterest', 'careerReadiness', 'strengths',
-    'weaknesses', 'behaviourAnalysis', 'careerFit', 'trainingRecommendation',
-    'counsellorRecommendation', 'scores'
-  ],
-  properties: {
-    overallPersonality: { type: 'string' },
-    technicalInterest:  { type: 'string' },
-    careerReadiness:    { type: 'string' },
-    strengths:  strList,
-    weaknesses: strList,
-    behaviourAnalysis: {
-      type: 'object',
-      additionalProperties: false,
-      required: ['learningStyle', 'problemSolving', 'decisionMaking', 'confidence',
-                 'riskTaking', 'leadership', 'teamWork', 'communication', 'adaptability'],
-      properties: {
-        learningStyle: { type: 'string' }, problemSolving: { type: 'string' },
-        decisionMaking: { type: 'string' }, confidence: { type: 'string' },
-        riskTaking: { type: 'string' }, leadership: { type: 'string' },
-        teamWork: { type: 'string' }, communication: { type: 'string' },
-        adaptability: { type: 'string' }
-      }
-    },
-    careerFit: {
-      type: 'array',
-      items: {
-        type: 'object',
-        additionalProperties: false,
-        required: ['path', 'reason'],
-        properties: { path: { type: 'string' }, reason: { type: 'string' } }
-      }
-    },
-    trainingRecommendation: {
-      type: 'object',
-      additionalProperties: false,
-      required: ['courses', 'skills', 'certifications', 'projects', 'softSkills',
-                 'interviewPrep', 'timeline'],
-      properties: {
-        courses: strList, skills: strList, certifications: strList,
-        projects: strList, softSkills: strList, interviewPrep: strList,
-        timeline: { type: 'string' }
-      }
-    },
-    counsellorRecommendation: { type: 'string' },
-    scores: {
-      type: 'object',
-      additionalProperties: false,
-      required: METRICS.concat('overall'),
-      properties: Object.fromEntries(
-        METRICS.concat('overall').map(m => [m, { type: 'integer' }])
-      )
-    }
-  }
-};
+// ── The actual prompt instructions sent to every AI provider ───────────────
+// Single source of truth for what a report must contain — kept in sync with
+// exactly the fields applyAiData() reads (see generateReport below). Written
+// to be explicit about length/count/shape because these models (Ollama's
+// llama3.1:8b, Hugging Face's hosted Llama) take instructions literally and
+// go terse without them.
+const REPORT_PROMPT_INSTRUCTIONS = `You are an experienced career counsellor at an engineering training academy in India, reviewing a student's self-assessment questionnaire for Junior Data Analyst / Junior Data Engineer roles.
 
-const SYSTEM_PROMPT = `You are an experienced career counsellor at an engineering training academy in India. You are given a student's answers to a self-assessment questionnaire for Junior Data Analyst / Junior Data Engineer roles.
+Write a professional counselling report. Do NOT simply repeat the answers back — infer the student's personality, motivation, readiness and gaps from the pattern of their responses. Cross-check self-ratings (Section H) against actual technical exposure and effort (Sections C and D): if self-rating is high but exposure/effort is low, note that the self-assessment appears inflated. High interest with low effort means "interested in words only". Preparation for higher studies or government exams is an attrition risk. Write like an experienced human counsellor: warm, professional, specific, honest — never generic filler.
 
-Write a professional counselling report. Do NOT simply repeat the answers back — infer the student's personality, motivation, readiness and gaps from the pattern of their responses. Cross-check self-ratings (Section H) against actual technical exposure and effort (Sections C and D): if self-rating is high but exposure/effort is low, note that the self-assessment appears inflated. High interest with low effort means "interested in words only". Preparation for higher studies or government exams is an attrition risk.
+Produce a JSON object only, with exactly these keys and nothing else:
 
-Style requirements:
-- Write like an experienced human counsellor: warm, professional, specific, honest.
-- "strengths": 6 to 10 short phrases. "weaknesses": 4 to 8 short phrases covering skill gaps, communication, roadmap, confidence, coding, projects, interview readiness as applicable.
-- "careerFit": 2 to 4 recommended paths (e.g. Software Development, Data Analytics, Data Engineering, Data Science, Cyber Security, Cloud, Government, Higher Studies, Entrepreneurship) each with a one-to-two sentence reason grounded in the answers.
-- "counsellorRecommendation": a single flowing paragraph of 300 to 500 words, no bullet points and no headings. Reading only this paragraph, a counsellor must understand who this student is, what they need, where they struggle, what motivates them, and how to guide them in the conversation.
-- "scores": integers 0-100. You are given rubric-derived baseline scores; adjust them only where the qualitative picture justifies it (stay within about 15 points of each baseline). riskLevel is a RISK (higher = more likely to drop off / not join).`;
+- overallPersonality (string, 2-4 sentences)
+- technicalInterest (string, 2-3 sentences)
+- careerReadiness (string, 2-3 sentences)
+- learningBehaviour (string, 1-2 sentences)
+- confidenceAnalysis (string, 1-2 sentences)
+- skillGapAnalysis (string, 1-2 sentences)
+- strengths: array of 6 to 10 short phrases
+- weaknesses: array of 4 to 8 short phrases covering skill gaps, communication, roadmap, confidence, coding, projects, interview readiness as applicable
+- behaviourAnalysis: object with exactly these string keys, one sentence each — learningStyle, problemSolving, decisionMaking, confidence, riskTaking, leadership, teamWork, communication, adaptability
+- careerFit: array of 2 to 4 objects {path, reason} — recommended paths (e.g. Software Development, Data Analytics, Data Engineering, Data Science, Cyber Security, Cloud, Government, Higher Studies, Entrepreneurship), each reason a one-to-two sentence explanation grounded in the answers
+- trainingRecommendation: object with courses, skills, certifications, projects, softSkills, interviewPrep (each an array of 2-5 short strings) and timeline (a one-sentence string)
+- recommendedCareerPath (string, one sentence)
+- recommendedTrainingPlan (string, one sentence)
+- practicalExperience: a focused paragraph (100-200 words) specifically about the student's hands-on experience, grounded ONLY in their answers to question Q34 ("Describe your college project") and Q35 ("Where did you do your final year internship? Was it paid, stipend-based, or unpaid? What did you learn from it?"). Cover: what the project does and their role in it, and where/how the internship was structured (paid/stipend/unpaid) and what they took away from it. If either Q34 or Q35 was left blank, say so plainly (e.g. "No internship completed yet") instead of inventing details.
+- counsellorRecommendation: a single flowing paragraph of 300 to 500 words, no bullet points and no headings. Reading only this paragraph, a counsellor must understand who this student is, what they need, where they struggle, what motivates them, and how to guide them in the conversation.
+- scores: object with integer 0-100 values for careerClarity, confidence, technicalReadiness, learningAttitude, placementReadiness, communicationReadiness, motivation, riskLevel, overall. You are given rubric-derived baseline scores below; adjust them only where the qualitative picture justifies it (stay within about 15 points of each baseline). riskLevel is a RISK (higher = more likely to drop off / not join).
+
+Do not include markdown, code fences, or any explanation outside the JSON object. Output valid JSON only.`;
 
 function buildTranscript(response, questions) {
   const byId = new Map(questions.map(q => [String(q._id), q]));
@@ -452,8 +306,8 @@ async function generateReport(response) {
       throw err;
     }
 
-    // Shared by both real AI sources (Gemini and Ollama produce the same JSON
-    // shape) — only reportSource/generatedBy/aiModel differ between them.
+    // Shared by both real AI sources (Hugging Face and Ollama produce the
+    // same JSON shape) — only reportSource/generatedBy/aiModel differ.
     function applyAiData(reportSource, generatedBy, aiModel, data) {
       const scores = {};
       for (const m of METRICS.concat('overall')) {
@@ -494,6 +348,7 @@ async function generateReport(response) {
         },
         recommendedCareerPath: toText(data.recommendedCareerPath),
         recommendedTrainingPlan: toText(data.recommendedTrainingPlan),
+        practicalExperience: toText(data.practicalExperience),
         counsellorRecommendation: toText(data.counsellorRecommendation),
         scores,
         aiModel,
@@ -503,8 +358,8 @@ async function generateReport(response) {
     }
 
     // Shared last-resort fallback — deterministic report from this student's
-    // own rubric scores. Used whichever AI path (Gemini, Ollama, Hugging
-    // Face) was attempted, so a report always gets produced.
+    // own rubric scores. Used whichever AI path (Hugging Face, Ollama) was
+    // attempted, so a report always gets produced.
     function applyLocalFallback(fallbackReason) {
       const localData = buildFinalReport(response, questions, baseScores, fallbackReason);
       const scores = localData.scores || baseScores;
@@ -527,6 +382,7 @@ async function generateReport(response) {
         trainingRecommendation: localData.trainingRecommendation || {},
         recommendedCareerPath: localData.recommendedCareerPath || '',
         recommendedTrainingPlan: localData.recommendedTrainingPlan || '',
+        practicalExperience: localData.practicalExperience || '',
         counsellorRecommendation: localData.counsellorRecommendation,
         scores,
         aiModel: 'local-rule-engine',
@@ -535,64 +391,53 @@ async function generateReport(response) {
       });
     }
 
-    // Explicit provider selection — set AI_PROVIDER=huggingface in
-    // backend/.env to skip Gemini AND Ollama entirely and always generate via
-    // Hugging Face's hosted model. Independent of the Ollama override below;
-    // only one of AI_PROVIDER's values is ever active at a time.
-    if (process.env.AI_PROVIDER === 'huggingface') {
+    // Explicit provider selection — set AI_PROVIDER to "ollama" or
+    // "huggingface" in backend/.env to force only that one provider, falling
+    // back straight to the local rule-engine if it fails (skips the normal
+    // two-tier chain below entirely). Useful for testing one provider in
+    // isolation without changing the production default.
+    const provider = process.env.AI_PROVIDER;
+
+    if (provider === 'ollama' || provider === 'huggingface') {
+      const runner = provider === 'ollama'
+        ? () => generateOllamaReport(response, questions, baseScores, totalGot, totalMax)
+        : () => generateHuggingFaceReport(response, questions, baseScores, totalGot, totalMax);
+      const label = provider === 'ollama' ? 'Ollama (local)' : 'Hugging Face';
+      const aiModel = provider === 'ollama' ? OLLAMA_MODEL : HF_MODEL;
+      const reportSource = provider === 'ollama' ? 'Ollama' : 'Hugging Face';
+
       try {
-        const hfData = await generateHuggingFaceReport(response, questions, baseScores, totalGot, totalMax);
-        applyAiData('Hugging Face', 'Hugging Face', HF_MODEL, hfData);
-        report.set({ fallbackReason: 'AI_PROVIDER=huggingface is set — generated directly via Hugging Face.' });
+        const data = await runner();
+        applyAiData(reportSource, label, aiModel, data);
+        report.set({ fallbackReason: `AI_PROVIDER=${provider} is set — generated directly via ${label}.` });
         await report.save();
         return report;
-      } catch (hfErr) {
-        console.error(`[AI Report] Hugging Face generation failed for response ${response._id}:`, hfErr.message);
-        applyLocalFallback(`AI_PROVIDER=huggingface is set, but Hugging Face failed (${hfErr.message}).`);
+      } catch (err) {
+        console.error(`[AI Report] ${label} generation failed for response ${response._id}:`, err.message);
+        applyLocalFallback(`AI_PROVIDER=${provider} is set, but ${label} failed (${err.message}).`);
         await report.save();
         return report;
       }
     }
 
-    // Local dev/testing override — set AI_PROVIDER=ollama in backend/.env to
-    // skip Gemini entirely and always generate via the local Ollama model.
-    // Unset (the default, and always the case in production) preserves the
-    // normal Gemini -> Ollama -> rule-engine chain exactly as before.
-    const forceOllama = process.env.AI_PROVIDER === 'ollama';
-
+    // Production default (AI_PROVIDER unset): Hugging Face -> Ollama -> rule-engine.
     try {
-      if (forceOllama) {
-        const err = new Error('AI_PROVIDER=ollama is set — skipping Gemini');
-        err.forcedSkip = true;
-        throw err;
-      }
-      const geminiData = await generateGeminiReport(response, questions, baseScores, totalGot, totalMax);
-      applyAiData('Gemini', 'Gemini', GEMINI_MODEL, geminiData);
+      const hfData = await generateHuggingFaceReport(response, questions, baseScores, totalGot, totalMax);
+      applyAiData('Hugging Face', 'Hugging Face', HF_MODEL, hfData);
       await report.save();
       return report;
-    } catch (geminiErr) {
-      if (geminiErr.forcedSkip) {
-        console.info(`[AI Report] AI_PROVIDER=ollama set for response ${response._id} — generating via Ollama directly`);
-      } else {
-        console.error(`[AI Report] Gemini generation failed for response ${response._id}:`, geminiErr.message);
-      }
+    } catch (hfErr) {
+      console.error(`[AI Report] Hugging Face generation failed for response ${response._id}:`, hfErr.message);
 
       try {
         const ollamaData = await generateOllamaReport(response, questions, baseScores, totalGot, totalMax);
         applyAiData('Ollama', 'Ollama (local)', OLLAMA_MODEL, ollamaData);
-        report.set({
-          fallbackReason: geminiErr.forcedSkip
-            ? 'AI_PROVIDER=ollama is set — generated directly via the local Ollama model.'
-            : `Gemini unavailable (${sanitizeFallbackReason(geminiErr)}); used local Ollama model instead.`
-        });
+        report.set({ fallbackReason: `Hugging Face unavailable (${hfErr.message}); used local Ollama model instead.` });
         await report.save();
         return report;
       } catch (ollamaErr) {
         console.error(`[AI Report] Ollama generation failed for response ${response._id}:`, ollamaErr.message);
-        const fallbackReason = geminiErr.forcedSkip
-          ? `AI_PROVIDER=ollama is set, but the local Ollama model failed (${ollamaErr.message}).`
-          : `${sanitizeFallbackReason(geminiErr)} Local Ollama model also unavailable (${ollamaErr.message}).`;
-        applyLocalFallback(fallbackReason);
+        applyLocalFallback(`Hugging Face unavailable (${hfErr.message}). Local Ollama model also unavailable (${ollamaErr.message}).`);
         await report.save();
         return report;
       }

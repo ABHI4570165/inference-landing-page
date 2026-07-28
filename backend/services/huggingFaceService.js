@@ -1,9 +1,11 @@
-// Hugging Face Inference Providers — cloud-hosted (GPU-backed), used as an
-// explicit alternative to local Ollama when AI_PROVIDER=huggingface is set.
-// Much faster than local CPU inference; requires HUGGINGFACE_API_KEY.
+// Hugging Face Inference Providers — cloud-hosted (GPU-backed). This is the
+// production default report generator (see aiReport.js); requires
+// HUGGINGFACE_API_KEY. Free-tier router latency varies noticeably
+// (observed ~7s-35s typical, occasionally longer) — timeout is generous and
+// aiReport.js retries once on top of that.
 const HF_API_KEY = process.env.HUGGINGFACE_API_KEY;
 const HF_MODEL = process.env.HUGGINGFACE_MODEL || 'meta-llama/Llama-3.1-8B-Instruct';
-const HF_TIMEOUT_MS = Number(process.env.HUGGINGFACE_TIMEOUT_MS) || 60000;
+const HF_TIMEOUT_MS = Number(process.env.HUGGINGFACE_TIMEOUT_MS) || 90000;
 const HF_ROUTER_URL = 'https://router.huggingface.co/v1/chat/completions';
 
 async function sendHuggingFacePrompt(prompt, model = HF_MODEL) {
