@@ -21,6 +21,7 @@ function CountCard({ label, value, accent }) {
 }
 
 export default function AdminAttendance() {
+  const [mode, setMode]           = useState('college') // 'college' | 'search'
   const [colleges, setColleges]   = useState([])
   const [college, setCollege]     = useState('')
   const [date, setDate]           = useState(todayStr())
@@ -35,6 +36,83 @@ export default function AdminAttendance() {
   // Generic confirmation modal — null when hidden, otherwise holds the config
   // { title, message, confirmLabel, danger, onConfirm }
   const [confirmDialog, setConfirmDialog] = useState(null)
+
+  // ── "Search Student" mode — quick-mark one student without knowing/
+  // selecting their college first (e.g. a stray student met individually) ──
+  const [searchInput, setSearchInput]     = useState('')
+  const [searchQuery, setSearchQuery]     = useState('')
+  const [searchResults, setSearchResults] = useState([])
+  const [searching, setSearching]         = useState(false)
+  const [pickedStudent, setPickedStudent] = useState(null) // student object
+  const [pickedStatus, setPickedStatus]   = useState(null) // 'Present' | 'Absent' | null
+  const [statusLoading, setStatusLoading] = useState(false)
+  const [marking, setMarking]             = useState(false)
+  const [quickMessage, setQuickMessage]   = useState(null) // { type, text }
+
+  // debounce the search box
+  useEffect(() => {
+    const id = setTimeout(() => setSearchQuery(searchInput.trim()), 400)
+    return () => clearTimeout(id)
+  }, [searchInput])
+
+  useEffect(() => {
+    if (mode !== 'search' || !searchQuery) { setSearchResults([]); return }
+    let ignore = false
+    setSearching(true)
+    API.get(`/api/students?search=${encodeURIComponent(searchQuery)}&limit=8`)
+      .then(res => { if (!ignore) setSearchResults(res.data.students) })
+      .catch(() => { if (!ignore) setSearchResults([]) })
+      .finally(() => { if (!ignore) setSearching(false) })
+    return () => { ignore = true }
+  }, [searchQuery, mode])
+
+  async function pickStudent(student) {
+    setPickedStudent(student)
+    setPickedStatus(null)
+    setQuickMessage(null)
+    setStatusLoading(true)
+    try {
+      const res = await API.get(`/api/attendance/student/${student._id}?date=${date}`)
+      setPickedStatus(res.data.status)
+    } catch (err) {
+      setQuickMessage({ type: 'error', text: err.response?.data?.message || 'Failed to load current status' })
+    } finally {
+      setStatusLoading(false)
+    }
+  }
+
+  // Re-check status if the admin changes the date while a student is picked
+  useEffect(() => {
+    if (mode === 'search' && pickedStudent) pickStudent(pickedStudent)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [date])
+
+  async function markPickedStudent(status) {
+    if (!pickedStudent) return
+    setMarking(true)
+    setQuickMessage(null)
+    try {
+      await API.post('/api/attendance', { studentId: pickedStudent._id, date, status })
+      setPickedStatus(status)
+      setQuickMessage({
+        type: 'success',
+        text: `Marked ${status} — ${pickedStudent.name} (${pickedStudent.college}) on ${date}`
+      })
+    } catch (err) {
+      setQuickMessage({ type: 'error', text: err.response?.data?.message || 'Failed to save attendance' })
+    } finally {
+      setMarking(false)
+    }
+  }
+
+  function clearPickedStudent() {
+    setPickedStudent(null)
+    setPickedStatus(null)
+    setQuickMessage(null)
+    setSearchInput('')
+    setSearchQuery('')
+    setSearchResults([])
+  }
 
   // Snapshot of the marks as last loaded/saved — lets us detect unsaved edits.
   // Kept as state (not a ref) so `dirty` recomputes when it changes after a save.
@@ -340,9 +418,138 @@ export default function AdminAttendance() {
     <AdminLayout>
       <div className="mb-6">
         <h2 className="font-heading text-2xl font-bold text-gray-800">College Attendance</h2>
-        <p className="text-gray-500 text-sm">Mark attendance college-wise and instantly see who's present or absent.</p>
+        <p className="text-gray-500 text-sm">Mark attendance college-wise, or look up one student directly if you don't know their college.</p>
       </div>
 
+      {/* ── Mode toggle ── */}
+      <div className="flex gap-1.5 mb-4">
+        <button
+          onClick={() => setMode('college')}
+          className={`px-4 py-2 rounded-full text-sm font-medium border transition ${
+            mode === 'college' ? 'bg-brand-600 text-white border-brand-600' : 'bg-white text-gray-600 border-gray-200 hover:border-brand-300'
+          }`}
+        >
+          By College
+        </button>
+        <button
+          onClick={() => setMode('search')}
+          className={`px-4 py-2 rounded-full text-sm font-medium border transition ${
+            mode === 'search' ? 'bg-brand-600 text-white border-brand-600' : 'bg-white text-gray-600 border-gray-200 hover:border-brand-300'
+          }`}
+        >
+          Search Student
+        </button>
+      </div>
+
+      {mode === 'search' && (
+        <>
+          <div className="card mb-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end mb-4">
+              <div className="sm:col-span-2">
+                <label className="form-label">Search by name, email, phone, college or Aadhar</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="Start typing to search across every college…"
+                  value={searchInput}
+                  onChange={e => setSearchInput(e.target.value)}
+                  autoFocus
+                />
+              </div>
+              <div>
+                <label className="form-label">Date</label>
+                <input type="date" className="form-input" value={date} max={todayStr()} onChange={e => setDate(e.target.value)} />
+              </div>
+            </div>
+
+            {searching && <p className="text-sm text-gray-400 flex items-center gap-2"><Spinner /> Searching…</p>}
+
+            {!searching && searchQuery && searchResults.length === 0 && (
+              <p className="text-sm text-gray-400">No students match "{searchQuery}".</p>
+            )}
+
+            {!pickedStudent && searchResults.length > 0 && (
+              <div className="divide-y divide-gray-100 border border-gray-200 rounded-xl overflow-hidden">
+                {searchResults.map(s => (
+                  <button
+                    key={s._id}
+                    onClick={() => pickStudent(s)}
+                    className="w-full text-left px-4 py-3 hover:bg-brand-50/40 transition flex items-center justify-between gap-3"
+                  >
+                    <div className="min-w-0">
+                      <p className="font-medium text-gray-800">{s.name}</p>
+                      <p className="text-xs text-gray-500 truncate">{s.college} • {s.email} • {s.phone}</p>
+                    </div>
+                    <span className="text-xs text-brand-600 font-semibold flex-shrink-0">Select →</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {pickedStudent && (
+            <div className="card mb-4">
+              <div className="flex items-start justify-between gap-3 mb-4">
+                <div>
+                  <h3 className="font-heading font-bold text-lg text-gray-800">{pickedStudent.name}</h3>
+                  <p className="text-sm text-gray-500">
+                    {pickedStudent.college} • {pickedStudent.course === 'Others' ? pickedStudent.customCourse : pickedStudent.course}
+                    {pickedStudent.branch ? ` • ${pickedStudent.branch === 'Others' ? pickedStudent.customBranch : pickedStudent.branch}` : ''}
+                  </p>
+                  <p className="text-xs text-gray-400 mt-0.5">{pickedStudent.email} • {pickedStudent.phone}</p>
+                </div>
+                <button className="btn-secondary text-xs !px-3 !py-1.5" onClick={clearPickedStudent}>Change student</button>
+              </div>
+
+              {statusLoading ? (
+                <p className="text-sm text-gray-400 flex items-center gap-2"><Spinner /> Checking current status…</p>
+              ) : (
+                <>
+                  <p className="text-xs text-gray-500 mb-2">
+                    Attendance for <span className="font-medium">{date}</span>:{' '}
+                    {pickedStatus ? (
+                      <span className={pickedStatus === 'Present' ? 'text-green-700 font-semibold' : 'text-red-600 font-semibold'}>{pickedStatus}</span>
+                    ) : (
+                      <span className="text-amber-600 font-semibold">Not marked</span>
+                    )}
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => markPickedStudent('Present')}
+                      disabled={marking}
+                      className={`px-5 py-2 rounded-full text-sm font-semibold border transition ${
+                        pickedStatus === 'Present' ? 'bg-green-600 text-white border-green-600' : 'bg-white text-green-700 border-green-300 hover:bg-green-50'
+                      }`}
+                    >
+                      {marking ? <><Spinner /> Saving…</> : 'Mark Present'}
+                    </button>
+                    <button
+                      onClick={() => markPickedStudent('Absent')}
+                      disabled={marking}
+                      className={`px-5 py-2 rounded-full text-sm font-semibold border transition ${
+                        pickedStatus === 'Absent' ? 'bg-red-600 text-white border-red-600' : 'bg-white text-red-600 border-red-300 hover:bg-red-50'
+                      }`}
+                    >
+                      {marking ? <><Spinner /> Saving…</> : 'Mark Absent'}
+                    </button>
+                  </div>
+                </>
+              )}
+
+              {quickMessage && (
+                <div className={`mt-4 px-4 py-2.5 rounded-lg text-sm ${
+                  quickMessage.type === 'success' ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'
+                }`}>
+                  {quickMessage.text}
+                </div>
+              )}
+            </div>
+          )}
+        </>
+      )}
+
+      {mode === 'college' && (
+      <>
       {/* ── Selector bar ── */}
       <div className="card mb-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 items-end">
@@ -532,6 +739,8 @@ export default function AdminAttendance() {
         <div className="card text-center py-16 text-gray-500">
           Select a college and date, then click <span className="font-medium">Load Roster</span> to begin marking attendance.
         </div>
+      )}
+      </>
       )}
 
       {/* ── Generic confirmation modal ── */}

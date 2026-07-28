@@ -27,6 +27,29 @@ router.get('/colleges', auth, async (req, res) => {
   }
 });
 
+// ── GET /api/attendance/student/:studentId?date=YYYY-MM-DD ─────────────────────
+// A single student's attendance status for one date — used by the "Search
+// Student" quick-mark flow (coordinator meets one student and doesn't know/
+// need to select their college first; POST /api/attendance below already
+// resolves the student's college automatically).
+router.get('/student/:studentId', auth, async (req, res) => {
+  try {
+    const date = (req.query.date || '').trim();
+    if (!DATE_RX.test(date)) {
+      return res.status(400).json({ message: 'A valid date (YYYY-MM-DD) is required' });
+    }
+
+    const student = await Student.findById(req.params.studentId).select(STUDENT_FIELDS).lean();
+    if (!student) return res.status(404).json({ message: 'Student not found' });
+
+    const record = await Attendance.findOne({ student: req.params.studentId, date }).lean();
+    res.json({ student, date, status: record?.status || null });
+  } catch (err) {
+    console.error('[GET /api/attendance/student/:studentId]', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 // ── GET /api/attendance/summary?date=YYYY-MM-DD ────────────────────────────────
 // College-wise present/absent/total roster counts for a given day, so the admin
 // can see at a glance how each college turned out.
