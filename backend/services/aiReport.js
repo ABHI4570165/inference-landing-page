@@ -106,6 +106,45 @@ function shouldCompressPrompt(prompt) {
   return prompt.length > MAX_PROMPT_CHARS || estimateTokens(prompt) > MAX_PROMPT_TOKENS;
 }
 
+// How long a 'generating' lease stays valid. Generation is a couple of AI
+// calls with their own timeouts; anything still 'generating' after this was
+// abandoned by a process that is no longer running.
+const GENERATION_LEASE_MS = 10 * 60 * 1000;
+
+// True when a 'generating' report was left behind by a run that is definitely
+// gone: this process is not the one holding it, and its lease has expired
+// (or it predates leases entirely, so it has no start timestamp at all).
+function isStaleGeneration(report) {
+  if (!report || report.status !== 'generating') return false;
+  if (reportGenerationLocks.has(String(report.response))) return false; // alive here
+  if (!report.generationStartedAt) return true;                          // pre-lease record
+  return Date.now() - new Date(report.generationStartedAt).getTime() > GENERATION_LEASE_MS;
+}
+
+// Called once at boot. A process that has only just started cannot be running
+// any generation, so every report still marked 'generating' is orphaned from a
+// previous run. They are moved to 'failed' with an explanation, which makes
+// them visible in the admin UI and regenerable — rather than sitting on a blue
+// "generating" badge that would never resolve.
+async function recoverOrphanedReports() {
+  try {
+    const result = await CounsellingReport.updateMany(
+      { status: 'generating' },
+      {
+        $set: {
+          status: 'failed',
+          error: 'Report generation was interrupted (the server restarted while it was running). Regenerate to try again.'
+        }
+      }
+    );
+    if (result.modifiedCount > 0) {
+      console.log(`✅  Recovered ${result.modifiedCount} interrupted AI report(s) — they can now be regenerated`);
+    }
+  } catch (err) {
+    console.error('[AI Report] failed to recover orphaned reports:', err.message);
+  }
+}
+
 function acquireReportLock(responseId) {
   const id = String(responseId);
   if (reportGenerationLocks.has(id)) {
@@ -277,10 +316,21 @@ function buildTranscript(response, questions) {
 // the rubric-derived scores are still stored so dashboards keep working.
 async function generateReport(response) {
   const existingReport = await CounsellingReport.findOne({ response: response._id }).lean();
-  if (existingReport?.status === 'generating') {
+
+  // A 'generating' report only blocks a new attempt while that attempt is
+  // genuinely alive. Without this check a report whose process was killed
+  // mid-generation stays 'generating' forever AND can never be regenerated,
+  // because every retry is rejected by the very status the dead run left behind.
+  if (existingReport?.status === 'generating' && !isStaleGeneration(existingReport)) {
     const err = new Error(`Report generation already in progress for response ${response._id}`);
     err.name = 'ReportGenerationLockedError';
     throw err;
+  }
+  if (existingReport?.status === 'generating') {
+    console.warn(
+      `[AI Report] reclaiming stale generation for response ${response._id} ` +
+      `(started ${existingReport.generationStartedAt ? existingReport.generationStartedAt.toISOString() : 'unknown'})`
+    );
   }
 
   acquireReportLock(response._id);
@@ -288,12 +338,17 @@ async function generateReport(response) {
     const questions = await CounsellingQuestion.find({}).lean();
     const { scores: baseScores, totalGot, totalMax } = computeMetricScores(response, questions);
 
+    // The in-process lock above already prevents two concurrent runs here, and
+    // the staleness check above rejects a live one from another process, so
+    // this claims the lease unconditionally and stamps when it started.
     let report = await CounsellingReport.findOneAndUpdate(
-      { response: response._id, status: { $ne: 'generating' } },
+      { response: response._id },
       {
         response: response._id,
         student: response.student,
+        workspace: response.workspace,
         status: 'generating',
+        generationStartedAt: new Date(),
         scores: baseScores,
         error: null,
         fallbackReason: null
@@ -458,4 +513,10 @@ function generateReportInBackground(response) {
   });
 }
 
-module.exports = { generateReport, generateReportInBackground, computeMetricScores };
+module.exports = {
+  generateReport,
+  generateReportInBackground,
+  computeMetricScores,
+  recoverOrphanedReports,
+  isStaleGeneration
+};

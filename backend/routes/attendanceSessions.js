@@ -1,5 +1,6 @@
 const router = require('express').Router();
 const auth = require('../config/auth');
+const requireWorkspace = require('../middleware/workspace');
 const Attendance = require('../models/Attendance');
 const AttendanceSession = require('../models/AttendanceSession');
 const Student = require('../models/Student');
@@ -16,12 +17,12 @@ function escapeRegex(value) {
 // ── GET /api/attendance-sessions ────────────────────────────────────────────
 // Historical attendance, session by session. Filters: college, from, to,
 // month (YYYY-MM), takenBy. Paginated, newest first.
-router.get('/', auth, async (req, res) => {
+router.get('/', auth, requireWorkspace, async (req, res) => {
   try {
     const page = Math.max(1, parseInt(req.query.page, 10) || 1);
     const limit = Math.min(100, Math.max(5, parseInt(req.query.limit, 10) || 20));
 
-    const match = {};
+    const match = { workspace: req.workspaceId };
     const sortMode = String(req.query.sort || 'latest').toLowerCase();
     if (req.query.college) match.college = String(req.query.college);
     if (req.query.batch) match.batch = new RegExp(escapeRegex(String(req.query.batch).trim()), 'i');
@@ -87,9 +88,9 @@ router.get('/', auth, async (req, res) => {
 // ── GET /api/attendance-sessions/analytics ──────────────────────────────────
 // Attendance percentages: overall, college-wise, branch-wise, month-wise and
 // per-day trend. Optional ?college=&from=&to=
-router.get('/analytics', auth, async (req, res) => {
+router.get('/analytics', auth, requireWorkspace, async (req, res) => {
   try {
-    const match = {};
+    const match = { workspace: req.workspaceId };
     if (req.query.college) match.college = String(req.query.college);
     if (req.query.batch) match.batch = new RegExp(escapeRegex(String(req.query.batch).trim()), 'i');
     if (req.query.admin || req.query.takenBy) {
@@ -172,15 +173,15 @@ router.get('/analytics', auth, async (req, res) => {
 
 // ── GET /api/attendance-sessions/:id ────────────────────────────────────────
 // One session in full: present/absent student lists, stats, edit history.
-router.get('/:id', auth, async (req, res) => {
+router.get('/:id', auth, requireWorkspace, async (req, res) => {
   try {
-    const session = await AttendanceSession.findById(req.params.id)
+    const session = await AttendanceSession.findOne({ _id: req.params.id, workspace: req.workspaceId })
       .populate('records.student', 'name email phone course customCourse branch customBranch')
       .lean();
     if (!session) return res.status(404).json({ message: 'Session not found' });
 
     // Include the full roster so unmarked students are visible/editable too
-    const roster = await Student.find({ college: session.college })
+    const roster = await Student.find({ college: session.college, workspace: req.workspaceId })
       .select('name email phone course customCourse branch customBranch')
       .sort({ name: 1 })
       .lean();
@@ -203,9 +204,9 @@ router.get('/:id', auth, async (req, res) => {
 // { records: [{ studentId, status: 'Present'|'Absent'|null }], remarks, batch }
 // Updates the per-student Attendance records, then appends the diff to the
 // session's editHistory — previous values are never lost.
-router.patch('/:id', auth, async (req, res) => {
+router.patch('/:id', auth, requireWorkspace, async (req, res) => {
   try {
-    const session = await AttendanceSession.findById(req.params.id);
+    const session = await AttendanceSession.findOne({ _id: req.params.id, workspace: req.workspaceId });
     if (!session) return res.status(404).json({ message: 'Session not found' });
 
     const { college, date } = session;
@@ -213,7 +214,7 @@ router.patch('/:id', auth, async (req, res) => {
 
     if (records.length) {
       const ids = [...new Set(records.map(r => r.studentId).filter(Boolean))];
-      const students = await Student.find({ _id: { $in: ids }, college }).select('_id').lean();
+      const students = await Student.find({ _id: { $in: ids }, college, workspace: req.workspaceId }).select('_id').lean();
       const validIds = new Set(students.map(s => String(s._id)));
 
       const ops = [];
@@ -225,7 +226,7 @@ router.patch('/:id', auth, async (req, res) => {
             updateOne: {
               filter: { student: r.studentId, date },
               update: {
-                $set: { status: r.status, college, markedBy: req.admin?.email },
+                $set: { status: r.status, college, workspace: req.workspaceId, markedBy: req.admin?.email },
                 $setOnInsert: { student: r.studentId, date }
               },
               upsert: true
@@ -241,7 +242,7 @@ router.patch('/:id', auth, async (req, res) => {
       if (ops.length) await Attendance.bulkWrite(ops, { ordered: false });
     }
 
-    const updated = await syncSessionFromAttendance(college, date, req.admin?.email, {
+    const updated = await syncSessionFromAttendance(req.workspaceId, college, date, req.admin?.email, {
       remarks: req.body.remarks,
       batch: req.body.batch
     });
@@ -267,13 +268,13 @@ router.patch('/:id', auth, async (req, res) => {
   }
 });
 
-router.delete('/:id', auth, async (req, res) => {
+router.delete('/:id', auth, requireWorkspace, async (req, res) => {
   try {
-    const session = await AttendanceSession.findById(req.params.id);
+    const session = await AttendanceSession.findOne({ _id: req.params.id, workspace: req.workspaceId });
     if (!session) return res.status(404).json({ message: 'Session not found' });
 
     await Promise.all([
-      Attendance.deleteMany({ college: session.college, date: session.date }),
+      Attendance.deleteMany({ college: session.college, date: session.date, workspace: req.workspaceId }),
       AttendanceSession.deleteOne({ _id: session._id })
     ]);
 

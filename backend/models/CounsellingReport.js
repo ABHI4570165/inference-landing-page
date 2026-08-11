@@ -15,6 +15,9 @@ const scoreSchema = new mongoose.Schema({
 }, { _id: false });
 
 const counsellingReportSchema = new mongoose.Schema({
+  // Denormalised from the response/student for direct workspace-scoped queries.
+  workspace: { type: mongoose.Schema.Types.ObjectId, ref: 'Workspace', required: true, index: true },
+
   response: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'StudentCounselling',
@@ -29,6 +32,14 @@ const counsellingReportSchema = new mongoose.Schema({
     default: 'pending',
     index: true
   },
+
+  // When the current 'generating' attempt started. 'generating' is a LEASE,
+  // not a permanent flag: if the process handling it dies (deploy, restart,
+  // crash) nothing would ever clear the status and the report could never be
+  // regenerated. A lease that has visibly expired is reclaimable — see
+  // isStaleGeneration() in services/aiReport.js.
+  generationStartedAt: { type: Date },
+
   error: { type: String },
 
   // Narrative sections

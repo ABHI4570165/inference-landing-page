@@ -102,11 +102,10 @@ export default function AdminCounsellingQuestions() {
   }
 
   return (
-    <AdminLayout>
-      <div className="mb-4">
-        <h2 className="font-heading text-2xl font-bold text-gray-800">Counselling Questions</h2>
-        <p className="text-gray-500 text-sm">The questionnaire is stored in the database — edit wording, options, points and order here. Changes appear on the student form immediately.</p>
-      </div>
+    <AdminLayout
+      title="Counselling Questions"
+      subtitle="The questionnaire is stored in the database — edit wording, options, points and order here. Changes appear on the student form immediately."
+    >
       <CounsellingNav />
 
       {message && (

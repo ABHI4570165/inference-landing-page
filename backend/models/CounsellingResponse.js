@@ -18,6 +18,9 @@ const answerSchema = new mongoose.Schema({
 }, { _id: false });
 
 const counsellingResponseSchema = new mongoose.Schema({
+  // Denormalised from the student for direct workspace-scoped queries.
+  workspace: { type: mongoose.Schema.Types.ObjectId, ref: 'Workspace', required: true, index: true },
+
   student: { type: mongoose.Schema.Types.ObjectId, ref: 'Student', required: true, index: true },
 
   // Denormalised for fast filtering / analytics

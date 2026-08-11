@@ -1,6 +1,7 @@
 const router = require('express').Router();
 const mongoose = require('mongoose');
 const auth = require('../config/auth');
+const requireWorkspace = require('../middleware/workspace');
 const CounsellingQuestion = require('../models/CounsellingQuestion');
 const CounsellingResponse = require('../models/CounsellingResponse');
 const CounsellingReport = require('../models/CounsellingReport');
@@ -127,12 +128,12 @@ router.delete('/questions/:id', auth, async (req, res) => {
 
 // GET /api/admin/counselling/responses — paginated list with filters
 // ?page=&limit=&college=&branch=&status=&from=&to=&search=&sort=
-router.get('/responses', auth, async (req, res) => {
+router.get('/responses', auth, requireWorkspace, async (req, res) => {
   try {
     const page = Math.max(1, parseInt(req.query.page, 10) || 1);
     const limit = Math.min(100, Math.max(5, parseInt(req.query.limit, 10) || 20));
 
-    const match = {};
+    const match = { workspace: req.workspaceId };
     if (req.query.college) match.college = String(req.query.college);
     if (req.query.branch)  match.branch = String(req.query.branch);
     if (req.query.status && ['in_progress', 'submitted'].includes(req.query.status)) {
@@ -197,9 +198,9 @@ router.get('/responses', auth, async (req, res) => {
 });
 
 // GET /api/admin/counselling/responses/:id — full profile
-router.get('/responses/:id', auth, async (req, res) => {
+router.get('/responses/:id', auth, requireWorkspace, async (req, res) => {
   try {
-    const response = await CounsellingResponse.findById(req.params.id)
+    const response = await CounsellingResponse.findOne({ _id: req.params.id, workspace: req.workspaceId })
       .populate('student', 'name email phone college course customCourse branch customBranch city state registrationPhoto')
       .lean();
     if (!response) return res.status(404).json({ message: 'Response not found' });
@@ -222,9 +223,9 @@ router.get('/responses/:id', auth, async (req, res) => {
 // and its AI report. Resets the student's counselling status back to PENDING
 // (and that day's ReceptionCheckin record) so re-registration/re-assessment
 // starts clean rather than looking like they've already completed it.
-router.delete('/responses/:id', auth, async (req, res) => {
+router.delete('/responses/:id', auth, requireWorkspace, async (req, res) => {
   try {
-    const response = await CounsellingResponse.findById(req.params.id);
+    const response = await CounsellingResponse.findOne({ _id: req.params.id, workspace: req.workspaceId });
     if (!response) return res.status(404).json({ message: 'Response not found' });
 
     await CounsellingReport.deleteOne({ response: response._id });
@@ -245,9 +246,9 @@ router.delete('/responses/:id', auth, async (req, res) => {
 });
 
 // POST /api/admin/counselling/responses/:id/unlock — allow resubmission
-router.post('/responses/:id/unlock', auth, async (req, res) => {
+router.post('/responses/:id/unlock', auth, requireWorkspace, async (req, res) => {
   try {
-    const response = await CounsellingResponse.findById(req.params.id);
+    const response = await CounsellingResponse.findOne({ _id: req.params.id, workspace: req.workspaceId });
     if (!response) return res.status(404).json({ message: 'Response not found' });
     if (response.status !== 'submitted') {
       return res.status(400).json({ message: 'This response is not submitted, nothing to unlock' });
@@ -271,9 +272,9 @@ router.post('/responses/:id/unlock', auth, async (req, res) => {
 // PUT /api/admin/counselling/responses/:id/gd-opinion — save the GD counsellor's
 // free-text opinion after meeting the student. Stored and shown verbatim —
 // independent of the AI report, and can be added/edited any time.
-router.put('/responses/:id/gd-opinion', auth, async (req, res) => {
+router.put('/responses/:id/gd-opinion', auth, requireWorkspace, async (req, res) => {
   try {
-    const response = await CounsellingResponse.findById(req.params.id);
+    const response = await CounsellingResponse.findOne({ _id: req.params.id, workspace: req.workspaceId });
     if (!response) return res.status(404).json({ message: 'Response not found' });
 
     const text = String(req.body.text || '').trim().slice(0, 5000);
@@ -297,9 +298,9 @@ router.put('/responses/:id/gd-opinion', auth, async (req, res) => {
 });
 
 // POST /api/admin/counselling/responses/:id/regenerate — re-run the AI report
-router.post('/responses/:id/regenerate', auth, async (req, res) => {
+router.post('/responses/:id/regenerate', auth, requireWorkspace, async (req, res) => {
   try {
-    const response = await CounsellingResponse.findById(req.params.id);
+    const response = await CounsellingResponse.findOne({ _id: req.params.id, workspace: req.workspaceId });
     if (!response) return res.status(404).json({ message: 'Response not found' });
     if (response.status !== 'submitted') {
       return res.status(400).json({ message: 'The form must be submitted before a report can be generated' });
@@ -321,9 +322,9 @@ router.post('/responses/:id/regenerate', auth, async (req, res) => {
 // ═══════════════════════ DASHBOARD ANALYTICS ═══════════════════════════════
 
 // GET /api/admin/counselling/dashboard?from=&to=&college=
-router.get('/dashboard', auth, async (req, res) => {
+router.get('/dashboard', auth, requireWorkspace, async (req, res) => {
   try {
-    const match = {};
+    const match = { workspace: req.workspaceId };
     if (req.query.college) match.college = String(req.query.college);
     if (DATE_RX.test(req.query.from || '') || DATE_RX.test(req.query.to || '')) {
       match.attendanceDate = {};
@@ -364,7 +365,7 @@ router.get('/dashboard', auth, async (req, res) => {
       ]),
       // Average AI scores across completed reports (scoped to matching responses)
       CounsellingReport.aggregate([
-        { $match: { status: 'completed' } },
+        { $match: { status: 'completed', workspace: req.workspaceId } },
         {
           $lookup: {
             from: 'studentcounsellings',
@@ -374,8 +375,8 @@ router.get('/dashboard', auth, async (req, res) => {
           }
         },
         { $unwind: '$resp' },
-        ...(Object.keys(match).length
-          ? [{ $match: Object.fromEntries(Object.entries(match).map(([k, v]) => [`resp.${k}`, v])) }]
+        ...(req.query.college || match.attendanceDate
+          ? [{ $match: Object.fromEntries(Object.entries(match).filter(([k]) => k !== 'workspace').map(([k, v]) => [`resp.${k}`, v])) }]
           : []),
         {
           $group: {
@@ -428,9 +429,9 @@ router.get('/dashboard', auth, async (req, res) => {
 
 // GET /api/admin/counselling/export — full submitted dataset (for CSV/Excel).
 // Returns JSON rows; the frontend renders CSV or a styled Excel workbook.
-router.get('/export', auth, async (req, res) => {
+router.get('/export', auth, requireWorkspace, async (req, res) => {
   try {
-    const match = { status: 'submitted' };
+    const match = { status: 'submitted', workspace: req.workspaceId };
     if (req.query.college) match.college = String(req.query.college);
     if (DATE_RX.test(req.query.from || '') || DATE_RX.test(req.query.to || '')) {
       match.attendanceDate = {};

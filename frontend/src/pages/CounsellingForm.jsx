@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { useParams } from 'react-router-dom'
 import API from '../utils/api'
 import Spinner from '../components/Spinner'
+import { PublicFooter } from '../components/PublicShell'
 
 // Public counselling assessment form (opened from the QR code).
 // Flow: verify identity → attendance check → section-wise questionnaire with
@@ -12,6 +14,11 @@ const OTHER = '__other__'
 const authHeaders = token => ({ headers: { Authorization: `Bearer ${token}` } })
 
 export default function CounsellingForm() {
+  // Present only on the per-workspace link (/counselling/:token) — absent on
+  // the original bare /counselling link, which resolves to the
+  // default-intake workspace on the backend instead.
+  const { token: linkToken } = useParams()
+
   const [stage, setStage] = useState('verify') // verify | form | done
   const [token, setToken] = useState(() => sessionStorage.getItem(TOKEN_KEY) || '')
   const [studentInfo, setStudentInfo] = useState(null)
@@ -135,7 +142,7 @@ export default function CounsellingForm() {
     setVerifying(true)
     setVerifyError(null)
     try {
-      const res = await API.post('/api/counselling/verify', verify)
+      const res = await API.post('/api/counselling/verify', { ...verify, token: linkToken })
       sessionStorage.setItem(TOKEN_KEY, res.data.token)
       setToken(res.data.token)
       setStudentInfo(res.data.student)
@@ -470,7 +477,7 @@ function SaveBadge({ state, lastSavedAt }) {
 // ── page shell ───────────────────────────────────────────────────────────────
 function Shell({ children }) {
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-surface-100 flex flex-col">
       <header className="bg-brand-800 text-white">
         <div className="max-w-3xl mx-auto px-4 py-5 flex items-center gap-3">
           <img src="/mandi-logo.png" alt="M H Foundation" className="w-10 h-10 object-contain bg-white rounded-full p-0.5 flex-shrink-0" />
@@ -480,7 +487,8 @@ function Shell({ children }) {
           </div>
         </div>
       </header>
-      <main className="max-w-3xl mx-auto px-4 py-6">{children}</main>
+      <main className="max-w-3xl mx-auto w-full px-4 py-6 flex-1">{children}</main>
+      <PublicFooter />
     </div>
   )
 }

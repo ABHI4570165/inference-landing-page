@@ -1,0 +1,89 @@
+// ── Public-facing brand shell ───────────────────────────────────────────────
+// Every page a candidate can reach carries M H Foundation branding and nothing
+// else. The recruitment company that owns the workspace is deliberately NOT
+// represented here — no company logo, no company footer — regardless of which
+// workspace the form belongs to. The workspace's identity reaches the
+// candidate only through the form's own title/description.
+//
+// The logo is the existing asset already in the project (public/mandi-logo.png);
+// nothing new is invented.
+
+const ORG = {
+  logo: '/mandi-logo.png',
+  name: 'M H Foundation®',
+  academy: 'Mandi Hariyanna Academy',
+  portal: 'Student Hiring Portal',
+  email: 'mhskill2024@gmail.com'
+}
+
+export function PublicHeader() {
+  return (
+    <header className="bg-white border-b border-surface-200 sticky top-0 z-30">
+      <div className="mx-auto w-full max-w-[920px] px-5 sm:px-8">
+        <div className="flex items-center justify-between gap-4 py-3.5">
+          <div className="flex items-center gap-3 min-w-0">
+            <img
+              src={ORG.logo}
+              alt={ORG.name}
+              className="w-11 h-11 sm:w-12 sm:h-12 rounded-full object-contain flex-shrink-0"
+            />
+            <div className="min-w-0">
+              <p className="font-heading text-[15px] sm:text-[17px] font-bold text-brand-800 leading-tight truncate">
+                {ORG.name}
+              </p>
+              <p className="text-[11px] sm:text-[12px] text-ink-400 leading-tight truncate">
+                {ORG.academy}
+              </p>
+            </div>
+          </div>
+          <p className="text-[10px] sm:text-[12px] font-semibold text-ink-500 tracking-wider uppercase text-right flex-shrink-0">
+            {ORG.portal}
+          </p>
+        </div>
+      </div>
+    </header>
+  )
+}
+
+export function PublicFooter() {
+  return (
+    <footer className="bg-brand-900 text-white mt-auto">
+      <div className="mx-auto w-full max-w-[920px] px-5 sm:px-8 py-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 text-center sm:text-left">
+          <div>
+            <p className="font-heading font-bold text-[15px] leading-tight">{ORG.academy}</p>
+            <p className="text-brand-300 text-[12.5px] mt-1">{ORG.name}</p>
+          </div>
+          <div className="text-brand-300 text-[12px] sm:text-right leading-relaxed">
+            <p>© {new Date().getFullYear()} All rights reserved.</p>
+            <p className="mt-0.5">
+              For queries:{' '}
+              <a href={`mailto:${ORG.email}`} className="underline underline-offset-2 hover:text-white transition-colors">
+                {ORG.email}
+              </a>
+            </p>
+          </div>
+        </div>
+      </div>
+    </footer>
+  )
+}
+
+// Full-height page frame: header, centred content column, footer pinned to the
+// bottom on short pages. Used by every public form so the shell is identical
+// while the form's own fields stay entirely dynamic.
+export default function PublicShell({ children }) {
+  return (
+    <div className="min-h-screen bg-surface-100 flex flex-col">
+      <PublicHeader />
+      <main className="flex-1 w-full">
+        <div className="mx-auto w-full max-w-[920px] px-4 sm:px-8 py-6 sm:py-10">
+          {children}
+        </div>
+      </main>
+      <PublicFooter />
+    </div>
+  )
+}
+
+export { ORG }

@@ -1,18 +1,20 @@
 const express  = require('express');
+const mongoose = require('mongoose');
 const multer   = require('multer');
 const router   = express.Router();
 const upload   = require('../middleware/upload');
 const auth     = require('../config/auth');
+const requireWorkspace = require('../middleware/workspace');
 const Student  = require('../models/Student');
+const Workspace = require('../models/Workspace');
 const cloudinary = require('../config/cloudinary');
+const { ensureLegacyForm } = require('../services/applicationForms');
 
 const ALLOWED_ROLES = [
   'Junior Data Engineer',
   'Junior Data Scientist – Generative AI',
   'Sales Executive (Inside Sales / Junior Sales Track)'
 ];
-
-const ALLOWED_SOURCES = ['official_college', 'instagram', 'missed_test'];
 
 // Cloudinary raw files often come back as octet-stream; map by extension
 const MIME_BY_EXT = {
@@ -84,6 +86,23 @@ function submitApplication(source) {
       if (!req.file) return rejected(400, 'no resume file in request', 'Resume is required');
       if (req.file.size === 0) return rejected(400, 'empty resume file', 'The uploaded resume file is empty. Please try uploading it again.');
 
+      // Public forms have no logged-in admin/workspace selection — every
+      // submission is intake for whichever workspace is currently flagged
+      // as the default. Live company workspaces created via the admin panel
+      // receive data through admin-driven flows, not this public endpoint,
+      // until per-workspace application links exist.
+      const intakeWorkspace = await Workspace.findOne({ isDefaultIntake: true }).select('_id').lean();
+      if (!intakeWorkspace) {
+        console.error('[SUBMIT ERROR] no default intake workspace configured');
+        return res.status(503).json({ message: 'Applications are temporarily unavailable. Please try again shortly.' });
+      }
+
+      // Every application belongs to a Form record, including the ones that
+      // arrive through these pre-Forms public links — that is what lets the
+      // Applications dashboard categorise them without knowing any names.
+      // Created on first submission per workspace, reused thereafter.
+      const intakeForm = await ensureLegacyForm(intakeWorkspace._id, source);
+
       const {
         name, gender, email, phone, aadhar,
         country, state, city, address,
@@ -128,14 +147,14 @@ function submitApplication(source) {
         return rejected(400, 'invalid role', 'Invalid role selected');
       }
 
-      // ── Duplicate checks ──
-      const dupAadhar = await Student.findOne({ aadhar: cleanAadhar });
+      // ── Duplicate checks (scoped to this workspace's intake) ──
+      const dupAadhar = await Student.findOne({ aadhar: cleanAadhar, workspace: intakeWorkspace._id });
       if (dupAadhar) {
         return rejected(409, 'duplicate aadhar',
           'An application with this Aadhar number already exists. Duplicate applications are not allowed.');
       }
 
-      const dupEmail = await Student.findOne({ email: email.toLowerCase().trim() });
+      const dupEmail = await Student.findOne({ email: email.toLowerCase().trim(), workspace: intakeWorkspace._id });
       if (dupEmail) {
         return rejected(409, 'duplicate email',
           'An application with this email address already exists. If you just submitted, your application was received — please do not submit again.');
@@ -143,6 +162,8 @@ function submitApplication(source) {
 
       // ── Build and save student ──
       const student = new Student({
+        workspace: intakeWorkspace._id,
+        form:    intakeForm?._id,
         name:    normalizeText(name),
         gender,
         email:   email.toLowerCase().trim(),
@@ -205,66 +226,17 @@ router.post('/instagram', handleResumeUpload, submitApplication('instagram'));
 // For students who could not visit/attend the test.
 router.post('/missed-test', handleResumeUpload, submitApplication('missed_test'));
 
-// ── GET /api/students/colleges — unique college list for filter (admin only) ───
-// Includes free-text colleges entered through the Instagram form.
-// NOTE: must be declared before GET /:id
-router.get('/colleges', auth, async (req, res) => {
-  try {
-    const colleges = await Student.distinct('college');
-    res.json(
-      colleges
-        .filter(c => typeof c === 'string' && c.trim())
-        .sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' }))
-    );
-  } catch (err) {
-    console.error('[GET /api/students/colleges]', err);
-    res.status(500).json({ message: 'Server error' });
-  }
-});
-
-// ── GET /api/students/stats — dashboard statistics (admin only) ────────────────
-// NOTE: must be declared before GET /:id
-router.get('/stats', auth, async (req, res) => {
-  try {
-    const startOfToday = new Date();
-    startOfToday.setHours(0, 0, 0, 0);
-
-    const [total, instagram, missedTest, today, topColleges, topInstagramColleges] = await Promise.all([
-      Student.countDocuments({}),
-      Student.countDocuments({ source: 'instagram' }),
-      Student.countDocuments({ source: 'missed_test' }),
-      Student.countDocuments({ createdAt: { $gte: startOfToday } }),
-      Student.aggregate([
-        { $group: { _id: '$college', count: { $sum: 1 } } },
-        { $sort: { count: -1, _id: 1 } },
-        { $project: { _id: 0, college: '$_id', count: 1 } }
-      ]),
-      Student.aggregate([
-        { $match: { source: 'instagram' } },
-        { $group: { _id: '$college', count: { $sum: 1 } } },
-        { $sort: { count: -1, _id: 1 } },
-        { $project: { _id: 0, college: '$_id', count: 1 } }
-      ])
-    ]);
-
-    // Legacy documents without `source` count as official_college
-    res.json({
-      total,
-      officialCollege: total - instagram - missedTest,
-      instagram,
-      missedTest,
-      today,
-      topColleges,
-      topInstagramColleges
-    });
-  } catch (err) {
-    console.error('[GET /api/students/stats]', err);
-    res.status(500).json({ message: 'Server error' });
-  }
-});
+// NOTE: the former GET /colleges and GET /stats endpoints lived here and
+// returned per-source counts ("Official College"/"Instagram"/"Missed Test")
+// baked into the query. They were replaced by the workspace-scoped, form-driven
+// GET /api/applications/stats and /api/applications/colleges — see
+// routes/applications.js. Nothing categorises applications by `source` anymore.
 
 // ── GET /api/students — list with filters (admin only) ─────────────────────────
-router.get('/', auth, async (req, res) => {
+// Kept for the record-level flows that operate on intake applications
+// specifically (attendance candidate search). The Applications dashboard
+// reads the unified GET /api/applications instead.
+router.get('/', auth, requireWorkspace, async (req, res) => {
   try {
     const page   = Math.max(1, parseInt(req.query.page)  || 1);
     // Cap is high (not 100) so the admin Excel export can pull every record in
@@ -272,12 +244,12 @@ router.get('/', auth, async (req, res) => {
     const limit  = Math.min(10000, parseInt(req.query.limit) || 15);
     const search   = req.query.search?.trim()   || '';
     const role     = req.query.role?.trim()     || '';
-    const source   = req.query.source?.trim()   || '';
+    const formId   = req.query.form?.trim()     || '';
     const college  = req.query.college?.trim()  || '';
     const dateFrom = req.query.dateFrom?.trim() || '';
     const dateTo   = req.query.dateTo?.trim()   || '';
 
-    const conditions = [];
+    const conditions = [{ workspace: req.workspaceId }];
 
     if (search) {
       const rx = escapeRegex(search);
@@ -296,13 +268,9 @@ router.get('/', auth, async (req, res) => {
       conditions.push({ selected_role: role });
     }
 
-    if (ALLOWED_SOURCES.includes(source)) {
-      // Legacy documents have no `source` field — treat them as official_college
-      conditions.push(
-        source === 'official_college'
-          ? { source: { $nin: ['instagram', 'missed_test'] } }
-          : { source }
-      );
+    // Category filtering is by Form id — never by a source string or a name
+    if (formId && mongoose.isValidObjectId(formId)) {
+      conditions.push({ form: new mongoose.Types.ObjectId(formId) });
     }
 
     // College dropdown sends an exact value from GET /colleges
@@ -345,9 +313,9 @@ router.get('/', auth, async (req, res) => {
 // ── GET /api/students/:id/resume — secure resume proxy (admin only) ────────────
 // The Cloudinary URL never reaches the client; the file streams through the
 // API behind JWT auth. ?download=1 forces an attachment download.
-router.get('/:id/resume', auth, async (req, res) => {
+router.get('/:id/resume', auth, requireWorkspace, async (req, res) => {
   try {
-    const student = await Student.findById(req.params.id).lean();
+    const student = await Student.findOne({ _id: req.params.id, workspace: req.workspaceId }).lean();
     if (!student || !student.resumeUrl) {
       return res.status(404).json({ message: 'Resume not found' });
     }
@@ -382,9 +350,9 @@ router.get('/:id/resume', auth, async (req, res) => {
 });
 
 // ── GET /api/students/:id ─────────────────────────────────────────────────────
-router.get('/:id', auth, async (req, res) => {
+router.get('/:id', auth, requireWorkspace, async (req, res) => {
   try {
-    const student = await Student.findById(req.params.id).select(PUBLIC_FIELDS).lean();
+    const student = await Student.findOne({ _id: req.params.id, workspace: req.workspaceId }).select(PUBLIC_FIELDS).lean();
     if (!student) return res.status(404).json({ message: 'Not found' });
     res.json(student);
   } catch (err) {
@@ -393,7 +361,7 @@ router.get('/:id', auth, async (req, res) => {
 });
 
 // ── PUT /api/students/:id ─────────────────────────────────────────────────────
-router.put('/:id', auth, async (req, res) => {
+router.put('/:id', auth, requireWorkspace, async (req, res) => {
   try {
     const allowed = [
       'name', 'gender', 'email', 'phone', 'aadhar',
@@ -404,9 +372,9 @@ router.put('/:id', auth, async (req, res) => {
     const update = {};
     allowed.forEach(k => { if (req.body[k] !== undefined) update[k] = req.body[k] });
 
-    const student = await Student.findByIdAndUpdate(req.params.id, update, { new: true, runValidators: true })
-      .select(PUBLIC_FIELDS)
-      .lean();
+    const student = await Student.findOneAndUpdate(
+      { _id: req.params.id, workspace: req.workspaceId }, update, { new: true, runValidators: true }
+    ).select(PUBLIC_FIELDS).lean();
     if (!student) return res.status(404).json({ message: 'Not found' });
     res.json(student);
   } catch (err) {
@@ -416,9 +384,9 @@ router.put('/:id', auth, async (req, res) => {
 });
 
 // ── DELETE /api/students/:id ──────────────────────────────────────────────────
-router.delete('/:id', auth, async (req, res) => {
+router.delete('/:id', auth, requireWorkspace, async (req, res) => {
   try {
-    const student = await Student.findById(req.params.id);
+    const student = await Student.findOne({ _id: req.params.id, workspace: req.workspaceId });
     if (!student) return res.status(404).json({ message: 'Not found' });
 
     // Delete resume from Cloudinary

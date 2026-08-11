@@ -5,6 +5,9 @@ const mongoose = require('mongoose');
 // day — this is the audit trail the admin Reception dashboard fetches
 // day-wise. Mirrors the (student, date) pattern already used by Attendance.
 const receptionCheckinSchema = new mongoose.Schema({
+  // Denormalised from the student for direct workspace-scoped queries.
+  workspace: { type: mongoose.Schema.Types.ObjectId, ref: 'Workspace', required: true, index: true },
+
   student: { type: mongoose.Schema.Types.ObjectId, ref: 'Student', required: true, index: true },
 
   // Snapshot at check-in time — stays readable even if the student record changes later

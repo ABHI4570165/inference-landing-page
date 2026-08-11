@@ -1,6 +1,8 @@
 const router     = require('express').Router();
 const auth       = require('../config/auth');
+const requireWorkspace = require('../middleware/workspace');
 const Student    = require('../models/Student');
+const College    = require('../models/College');
 const Attendance = require('../models/Attendance');
 const { syncSessionFromAttendance } = require('../services/attendanceSessions');
 
@@ -11,16 +13,41 @@ const DATE_RX = /^\d{4}-\d{2}-\d{2}$/;
 const STUDENT_FIELDS = 'name email phone college course customCourse branch customBranch';
 
 // ── GET /api/attendance/colleges ───────────────────────────────────────────────
-// Distinct list of colleges that actually have students — feeds the college
-// picker on the attendance screen. (Mirrors /api/students/colleges.)
-router.get('/colleges', auth, async (req, res) => {
+// The college picker for attendance (and the history / counselling filters).
+//
+// This used to return ONLY `Student.distinct('college')` — the college names
+// that happened to appear on application records. That meant a workspace whose
+// colleges were set up under Workspace → Colleges but which had no applications
+// yet showed an EMPTY picker, and managed colleges with no applicants were
+// never selectable.
+//
+// It now leads with the workspace's managed College collection — the same
+// single source of truth the Form Builder uses — and then adds any college
+// still referenced by this workspace's own student records. That second half
+// matters: some applications carry free-text college names entered through the
+// public forms, and dropping them would make their existing attendance
+// unreachable. Managed spelling wins on a case-insensitive clash.
+//
+// Both queries are scoped to req.workspaceId (re-verified by requireWorkspace),
+// so a workspace can never see another company's colleges.
+router.get('/colleges', auth, requireWorkspace, async (req, res) => {
   try {
-    const colleges = await Student.distinct('college');
-    res.json(
-      colleges
-        .filter(c => typeof c === 'string' && c.trim())
-        .sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' }))
-    );
+    const [managed, onApplications] = await Promise.all([
+      College.find({ workspace: req.workspaceId }).select('name').lean(),
+      Student.distinct('college', { workspace: req.workspaceId })
+    ]);
+
+    const byKey = new Map();
+    const add = name => {
+      if (typeof name !== 'string' || !name.trim()) return;
+      const key = name.trim().toLowerCase();
+      if (!byKey.has(key)) byKey.set(key, name.trim());
+    };
+
+    managed.forEach(c => add(c.name));       // authoritative list, added first
+    onApplications.forEach(add);             // keeps historical data reachable
+
+    res.json([...byKey.values()].sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' })));
   } catch (err) {
     console.error('[GET /api/attendance/colleges]', err);
     res.status(500).json({ message: 'Server error' });
@@ -32,17 +59,17 @@ router.get('/colleges', auth, async (req, res) => {
 // Student" quick-mark flow (coordinator meets one student and doesn't know/
 // need to select their college first; POST /api/attendance below already
 // resolves the student's college automatically).
-router.get('/student/:studentId', auth, async (req, res) => {
+router.get('/student/:studentId', auth, requireWorkspace, async (req, res) => {
   try {
     const date = (req.query.date || '').trim();
     if (!DATE_RX.test(date)) {
       return res.status(400).json({ message: 'A valid date (YYYY-MM-DD) is required' });
     }
 
-    const student = await Student.findById(req.params.studentId).select(STUDENT_FIELDS).lean();
+    const student = await Student.findOne({ _id: req.params.studentId, workspace: req.workspaceId }).select(STUDENT_FIELDS).lean();
     if (!student) return res.status(404).json({ message: 'Student not found' });
 
-    const record = await Attendance.findOne({ student: req.params.studentId, date }).lean();
+    const record = await Attendance.findOne({ student: req.params.studentId, date, workspace: req.workspaceId }).lean();
     res.json({ student, date, status: record?.status || null });
   } catch (err) {
     console.error('[GET /api/attendance/student/:studentId]', err);
@@ -53,7 +80,7 @@ router.get('/student/:studentId', auth, async (req, res) => {
 // ── GET /api/attendance/summary?date=YYYY-MM-DD ────────────────────────────────
 // College-wise present/absent/total roster counts for a given day, so the admin
 // can see at a glance how each college turned out.
-router.get('/summary', auth, async (req, res) => {
+router.get('/summary', auth, requireWorkspace, async (req, res) => {
   try {
     const date = (req.query.date || '').trim();
     if (!DATE_RX.test(date)) {
@@ -62,12 +89,13 @@ router.get('/summary', auth, async (req, res) => {
 
     // Total students enrolled per college (the full roster)
     const rosterAgg = await Student.aggregate([
+      { $match: { workspace: req.workspaceId } },
       { $group: { _id: '$college', total: { $sum: 1 } } }
     ]);
 
     // Present / Absent counts per college for the requested day
     const markedAgg = await Attendance.aggregate([
-      { $match: { date } },
+      { $match: { workspace: req.workspaceId, date } },
       { $group: { _id: { college: '$college', status: '$status' }, count: { $sum: 1 } } }
     ]);
 
@@ -108,7 +136,7 @@ router.get('/summary', auth, async (req, res) => {
 // ── GET /api/attendance?college=&date= ─────────────────────────────────────────
 // Roster for one college on one day: every student plus their attendance status
 // for that date ('Present' | 'Absent' | null when not yet marked).
-router.get('/', auth, async (req, res) => {
+router.get('/', auth, requireWorkspace, async (req, res) => {
   try {
     const college = (req.query.college || '').trim();
     const date    = (req.query.date || '').trim();
@@ -118,14 +146,14 @@ router.get('/', auth, async (req, res) => {
       return res.status(400).json({ message: 'A valid date (YYYY-MM-DD) is required' });
     }
 
-    const students = await Student.find({ college })
+    const students = await Student.find({ college, workspace: req.workspaceId })
       .select(STUDENT_FIELDS)
       .sort({ name: 1 })
       .lean();
 
     // Pull existing marks for these students on this date in one query
     const ids = students.map(s => s._id);
-    const records = await Attendance.find({ student: { $in: ids }, date }).lean();
+    const records = await Attendance.find({ student: { $in: ids }, date, workspace: req.workspaceId }).lean();
     const statusById = new Map(records.map(r => [String(r.student), r.status]));
 
     const roster = students.map(s => ({
@@ -156,7 +184,7 @@ router.get('/', auth, async (req, res) => {
 // ── POST /api/attendance ───────────────────────────────────────────────────────
 // Mark (or update) a single student's attendance for a date.
 // body: { studentId, date, status }
-router.post('/', auth, async (req, res) => {
+router.post('/', auth, requireWorkspace, async (req, res) => {
   try {
     const { studentId, date, status } = req.body;
 
@@ -168,17 +196,17 @@ router.post('/', auth, async (req, res) => {
       return res.status(400).json({ message: 'Status must be Present or Absent' });
     }
 
-    const student = await Student.findById(studentId).select('college').lean();
+    const student = await Student.findOne({ _id: studentId, workspace: req.workspaceId }).select('college').lean();
     if (!student) return res.status(404).json({ message: 'Student not found' });
 
     const record = await Attendance.findOneAndUpdate(
       { student: studentId, date: date.trim() },
-      { student: studentId, date: date.trim(), status, college: student.college, markedBy: req.admin?.email },
+      { student: studentId, date: date.trim(), status, college: student.college, workspace: req.workspaceId, markedBy: req.admin?.email },
       { new: true, upsert: true, runValidators: true, setDefaultsOnInsert: true }
     ).lean();
 
     // Record the change in the historical session (with edit audit trail)
-    syncSessionFromAttendance(student.college, date.trim(), req.admin?.email)
+    syncSessionFromAttendance(req.workspaceId, student.college, date.trim(), req.admin?.email)
       .catch(e => console.error('[attendance session sync]', e));
 
     res.json(record);
@@ -191,7 +219,7 @@ router.post('/', auth, async (req, res) => {
 // ── POST /api/attendance/bulk ──────────────────────────────────────────────────
 // Save attendance for many students at once (the "Save Attendance" button).
 // body: { date, records: [{ studentId, status }] }
-router.post('/bulk', auth, async (req, res) => {
+router.post('/bulk', auth, requireWorkspace, async (req, res) => {
   try {
     const { date, records } = req.body;
 
@@ -204,9 +232,10 @@ router.post('/bulk', auth, async (req, res) => {
 
     const cleanDate = date.trim();
 
-    // Resolve each student's college so summaries stay accurate
+    // Resolve each student's college so summaries stay accurate — scoped to
+    // this workspace, so an id from another company's drive is silently skipped
     const ids = [...new Set(records.map(r => r.studentId).filter(Boolean))];
-    const students = await Student.find({ _id: { $in: ids } }).select('college').lean();
+    const students = await Student.find({ _id: { $in: ids }, workspace: req.workspaceId }).select('college').lean();
     const collegeById = new Map(students.map(s => [String(s._id), s.college]));
 
     const ops = [];
@@ -214,7 +243,7 @@ router.post('/bulk', auth, async (req, res) => {
     for (const r of records) {
       if (!r.studentId) continue;
       const college = collegeById.get(String(r.studentId));
-      if (!college) continue; // unknown / deleted student — skip silently
+      if (!college) continue; // unknown / deleted / other-workspace student — skip silently
 
       if (VALID_STATUS.includes(r.status)) {
         // Present / Absent → upsert
@@ -222,7 +251,7 @@ router.post('/bulk', auth, async (req, res) => {
           updateOne: {
             filter: { student: r.studentId, date: cleanDate },
             update: {
-              $set: { status: r.status, college, markedBy: req.admin?.email },
+              $set: { status: r.status, college, workspace: req.workspaceId, markedBy: req.admin?.email },
               $setOnInsert: { student: r.studentId, date: cleanDate }
             },
             upsert: true
@@ -253,7 +282,7 @@ router.post('/bulk', auth, async (req, res) => {
     // appending any changes to the edit audit trail
     const colleges = [...new Set([...collegeById.values()])];
     for (const college of colleges) {
-      syncSessionFromAttendance(college, cleanDate, req.admin?.email)
+      syncSessionFromAttendance(req.workspaceId, college, cleanDate, req.admin?.email)
         .catch(e => console.error('[attendance session sync]', e));
     }
 

@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import API from '../utils/api'
 import AdminLayout from '../components/AdminLayout'
 import Spinner from '../components/Spinner'
+import { useWorkspace } from '../context/WorkspaceContext'
 
 // Local 'YYYY-MM-DD' for today (avoids the UTC shift that toISOString causes)
 function todayStr() {
@@ -21,6 +22,7 @@ function CountCard({ label, value, accent }) {
 }
 
 export default function AdminAttendance() {
+  const { workspace } = useWorkspace()
   const [mode, setMode]           = useState('college') // 'college' | 'search'
   const [colleges, setColleges]   = useState([])
   const [college, setCollege]     = useState('')
@@ -122,15 +124,22 @@ export default function AdminAttendance() {
     [statusMap, savedSnapshot]
   )
 
-  // Load the college list once
+  // Colleges for the active workspace — the managed Workspace → Colleges list
+  // plus any college still referenced by this workspace's applications. Keyed
+  // on the workspace id so switching workspace reloads the list instead of
+  // leaving the previous company's colleges on screen.
   useEffect(() => {
-    (async () => {
+    let ignore = false
+    ;(async () => {
       try {
         const res = await API.get('/api/attendance/colleges')
-        setColleges(res.data)
-      } catch { }
+        if (!ignore) setColleges(res.data)
+      } catch {
+        if (!ignore) setColleges([])
+      }
     })()
-  }, [])
+    return () => { ignore = true }
+  }, [workspace?._id])
 
   // Warn before closing/refreshing the tab while there are unsaved marks
   useEffect(() => {
@@ -415,12 +424,10 @@ export default function AdminAttendance() {
   ]
 
   return (
-    <AdminLayout>
-      <div className="mb-6">
-        <h2 className="font-heading text-2xl font-bold text-gray-800">College Attendance</h2>
-        <p className="text-gray-500 text-sm">Mark attendance college-wise, or look up one student directly if you don't know their college.</p>
-      </div>
-
+    <AdminLayout
+      title="Attendance"
+      subtitle="Mark attendance college-wise, or look up one student directly if you don't know their college."
+    >
       {/* ── Mode toggle ── */}
       <div className="flex gap-1.5 mb-4">
         <button
@@ -669,7 +676,7 @@ export default function AdminAttendance() {
               </div>
 
               {/* ── Roster ── */}
-              <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
+              <div className="table-scroll scroll-slim rounded-xl border border-surface-200 bg-white shadow-card">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-gray-50 border-b border-gray-200">

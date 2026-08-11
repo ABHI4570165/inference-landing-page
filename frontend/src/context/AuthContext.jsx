@@ -21,6 +21,10 @@ export function AuthProvider({ children }) {
 
   const logout = () => {
     localStorage.removeItem('admin_token')
+    // Active workspace selection belongs to this session — clear it too so
+    // the next login starts back at the Global Home workspace picker.
+    localStorage.removeItem('active_workspace_id')
+    localStorage.removeItem('active_workspace_meta')
     setToken(null)
     setAdmin(null)
   }

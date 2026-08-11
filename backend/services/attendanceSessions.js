@@ -3,20 +3,20 @@ const AttendanceSession = require('../models/AttendanceSession');
 const Student = require('../models/Student');
 
 // Keeps the historical AttendanceSession in sync with the per-student
-// Attendance records for one (college, date). Called after every save from
-// the marking screen or the history editor. Never overwrites history — any
-// difference from the previous state is appended to editHistory.
-async function syncSessionFromAttendance(college, date, adminEmail, extras = {}) {
-  const rows = await Attendance.find({ college, date }).select('student status').lean();
+// Attendance records for one (workspace, college, date). Called after every
+// save from the marking screen or the history editor. Never overwrites
+// history — any difference from the previous state is appended to editHistory.
+async function syncSessionFromAttendance(workspaceId, college, date, adminEmail, extras = {}) {
+  const rows = await Attendance.find({ workspace: workspaceId, college, date }).select('student status').lean();
   const newRecords = rows.map(r => ({ student: r.student, status: r.status }));
   const presentCount = newRecords.filter(r => r.status === 'Present').length;
   const absentCount = newRecords.length - presentCount;
 
-  let session = await AttendanceSession.findOne({ college, date });
+  let session = await AttendanceSession.findOne({ workspace: workspaceId, college, date });
 
   if (!session) {
     session = await AttendanceSession.create({
-      college, date,
+      workspace: workspaceId, college, date,
       takenBy: adminEmail,
       records: newRecords,
       presentCount, absentCount,

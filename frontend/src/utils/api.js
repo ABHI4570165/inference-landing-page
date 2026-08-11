@@ -6,11 +6,18 @@ const API = axios.create({
 })
 
 // Attach the admin token — unless the request already carries its own
-// Authorization header (e.g. the public counselling form's session token)
+// Authorization header (e.g. the public counselling form's session token) —
+// and the active workspace, if one is selected. The backend re-verifies this
+// id against the database on every workspace-scoped route (see
+// backend/middleware/workspace.js); it is never trusted as-is.
 API.interceptors.request.use(config => {
   const token = localStorage.getItem('admin_token')
   if (token && !config.headers.Authorization) {
     config.headers.Authorization = `Bearer ${token}`
+  }
+  const workspaceId = localStorage.getItem('active_workspace_id')
+  if (workspaceId && !config.headers['X-Workspace-Id']) {
+    config.headers['X-Workspace-Id'] = workspaceId
   }
   return config
 })

@@ -5,6 +5,7 @@ import API from '../utils/api'
 import AdminLayout from '../components/AdminLayout'
 import CounsellingNav from '../components/CounsellingNav'
 import Spinner from '../components/Spinner'
+import { useWorkspace } from '../context/WorkspaceContext'
 
 const REPORT_BADGE = {
   completed:  'bg-green-100 text-green-700',
@@ -15,6 +16,7 @@ const REPORT_BADGE = {
 
 export default function AdminCounsellingResponses() {
   const navigate = useNavigate()
+  const { workspace } = useWorkspace()
   const [rows, setRows] = useState([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
@@ -28,8 +30,8 @@ export default function AdminCounsellingResponses() {
   const [savingNote, setSavingNote] = useState(false)
 
   useEffect(() => {
-    API.get('/api/attendance/colleges').then(r => setColleges(r.data)).catch(() => {})
-  }, [])
+    API.get('/api/attendance/colleges').then(r => setColleges(r.data)).catch(() => setColleges([]))
+  }, [workspace?._id])
 
   // debounce search box
   useEffect(() => {
@@ -164,11 +166,10 @@ export default function AdminCounsellingResponses() {
   }
 
   return (
-    <AdminLayout>
-      <div className="mb-4">
-        <h2 className="font-heading text-2xl font-bold text-gray-800">Counselling Responses</h2>
-        <p className="text-gray-500 text-sm">Search, filter and open student assessment profiles.</p>
-      </div>
+    <AdminLayout
+      title="Counselling Responses"
+      subtitle="Search, filter and open student assessment profiles."
+    >
       <CounsellingNav />
 
       {/* filters */}
@@ -206,7 +207,7 @@ export default function AdminCounsellingResponses() {
         </div>
       </div>
 
-      <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
+      <div className="table-scroll scroll-slim rounded-xl border border-surface-200 bg-white shadow-card">
         <table className="w-full text-sm">
           <thead>
             <tr className="bg-gray-50 border-b border-gray-200">

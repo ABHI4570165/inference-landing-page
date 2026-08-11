@@ -22,6 +22,8 @@ const editSchema = new mongoose.Schema({
 }, { _id: false });
 
 const attendanceSessionSchema = new mongoose.Schema({
+  workspace: { type: mongoose.Schema.Types.ObjectId, ref: 'Workspace', required: true, index: true },
+
   college: { type: String, required: true, trim: true, index: true },
   date: {
     type: String,
@@ -46,9 +48,11 @@ const attendanceSessionSchema = new mongoose.Schema({
   editHistory: { type: [editSchema], default: [] }
 }, { timestamps: true });
 
-// One session per college per day — edits update the same session (with an
-// audit entry) instead of creating duplicates or overwriting silently.
-attendanceSessionSchema.index({ college: 1, date: 1 }, { unique: true });
-attendanceSessionSchema.index({ date: -1, college: 1 });
+// One session per college per day PER WORKSPACE — two different companies
+// can each run a session at the same college on the same date without
+// colliding. Edits update the same session (with an audit entry) instead of
+// creating duplicates or overwriting silently.
+attendanceSessionSchema.index({ workspace: 1, college: 1, date: 1 }, { unique: true });
+attendanceSessionSchema.index({ workspace: 1, date: -1, college: 1 });
 
 module.exports = mongoose.model('AttendanceSession', attendanceSessionSchema);

@@ -1,8 +1,14 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
+import { Link } from 'react-router-dom'
 import API from '../utils/api'
 import AdminLayout from '../components/AdminLayout'
 import Spinner from '../components/Spinner'
+import { ADMIN_FORMS } from '../utils/routes'
+import { IconBuilding, IconSearch, IconEdit, IconTrash, IconPlus, IconClose, IconArrowRight } from '../components/Icons'
 
+// The single source of truth for colleges in this workspace. The Form Builder's
+// College field reads this exact list — colleges are never typed into a form or
+// duplicated into a second collection.
 export default function AdminColleges() {
   const [colleges, setColleges] = useState([])
   const [loading, setLoading] = useState(true)
@@ -10,13 +16,14 @@ export default function AdminColleges() {
   const [editId, setEditId] = useState(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [query, setQuery] = useState('')
 
   async function fetchColleges() {
     setLoading(true)
     try {
       const res = await API.get('/api/colleges')
       setColleges(res.data)
-    } catch { }
+    } catch { /* ignore */ }
     setLoading(false)
   }
 
@@ -26,6 +33,7 @@ export default function AdminColleges() {
     setEditId(college._id)
     setForm({ name: college.name, location: college.location || '' })
     setError('')
+    window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
   function cancelEdit() {
@@ -55,67 +63,137 @@ export default function AdminColleges() {
     }
   }
 
-  async function handleDelete(id) {
-    if (!confirm('Delete this college?')) return
+  async function handleDelete(college) {
+    if (!confirm(`Delete "${college.name}"? Forms that offer it will stop showing it to candidates.`)) return
     try {
-      await API.delete(`/api/colleges/${id}`)
-      setColleges(prev => prev.filter(c => c._id !== id))
+      await API.delete(`/api/colleges/${college._id}`)
+      setColleges(prev => prev.filter(c => c._id !== college._id))
+      if (editId === college._id) cancelEdit()
     } catch { alert('Delete failed') }
   }
 
-  return (
-    <AdminLayout>
-      <div className="max-w-2xl mx-auto">
-        <div className="mb-6">
-          <h2 className="font-heading text-2xl font-bold text-gray-800">Manage Colleges</h2>
-          <p className="text-gray-500 text-sm">{colleges.length} colleges in database</p>
-        </div>
+  const visible = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    return q ? colleges.filter(c =>
+      c.name.toLowerCase().includes(q) || (c.location || '').toLowerCase().includes(q)) : colleges
+  }, [colleges, query])
 
-        {/* Add/Edit Form */}
-        <div className="card mb-6">
-          <h3 className="font-semibold text-gray-700 mb-4">{editId ? 'Edit College' : 'Add New College'}</h3>
-          <form onSubmit={handleSave} className="space-y-3">
+  return (
+    <AdminLayout
+      title="Colleges"
+      subtitle="The colleges available to this workspace. Forms pick from this list — they never define their own."
+    >
+      <div className="grid grid-cols-1 lg:grid-cols-[360px_minmax(0,1fr)] gap-5 items-start">
+        {/* Add / edit */}
+        <div className="panel lg:sticky lg:top-6">
+          <div className="panel-head">
+            <div>
+              <p className="text-[13.5px] font-bold text-ink-800">{editId ? 'Edit College' : 'Add College'}</p>
+              <p className="text-[12px] text-ink-400 mt-0.5">
+                {editId ? 'Renaming updates it everywhere at once.' : 'Available to every form in this workspace.'}
+              </p>
+            </div>
+            {editId && <button onClick={cancelEdit} className="icon-btn" aria-label="Cancel edit"><IconClose /></button>}
+          </div>
+          <form onSubmit={handleSave} className="p-5 space-y-4">
             <div>
               <label className="form-label">College Name <span className="text-red-500">*</span></label>
-              <input className="form-input" value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} placeholder="e.g. Anna University" />
+              <input className="form-input" value={form.name} placeholder="e.g. RV College of Engineering"
+                onChange={e => setForm(p => ({ ...p, name: e.target.value }))} />
             </div>
             <div>
-              <label className="form-label">Location (Optional)</label>
-              <input className="form-input" value={form.location} onChange={e => setForm(p => ({ ...p, location: e.target.value }))} placeholder="e.g. Chennai, Tamil Nadu" />
+              <label className="form-label">Location</label>
+              <input className="form-input" value={form.location} placeholder="e.g. Bengaluru, Karnataka"
+                onChange={e => setForm(p => ({ ...p, location: e.target.value }))} />
             </div>
-            {error && <p className="text-red-500 text-sm">{error}</p>}
-            <div className="flex gap-3">
-              <button type="submit" disabled={saving} className="btn-primary text-sm">
-                {saving ? <><Spinner /> Saving...</> : editId ? 'Update College' : 'Add College'}
+            {error && <p className="text-[13px] text-red-700 bg-red-50 border border-red-100 rounded-lg px-3 py-2.5">{error}</p>}
+            <div className="flex gap-2.5">
+              <button type="submit" disabled={saving} className="btn-primary flex-1">
+                {saving ? <><Spinner /> Saving…</> : editId ? 'Update College' : <><IconPlus /> Add College</>}
               </button>
               {editId && <button type="button" className="btn-secondary" onClick={cancelEdit}>Cancel</button>}
             </div>
           </form>
+
+          <div className="px-5 pb-5">
+            <div className="rounded-lg bg-brand-50 border border-brand-100 px-3.5 py-3">
+              <p className="text-[12.5px] text-brand-800 leading-relaxed">
+                New colleges become selectable in the Form Builder immediately — but are never
+                auto-added to existing forms. Pick them per form in{' '}
+                <Link to={ADMIN_FORMS} className="font-semibold underline">Forms</Link>.
+              </p>
+            </div>
+          </div>
         </div>
 
-        {/* College List */}
-        {loading ? (
-          <div className="flex justify-center py-12"><Spinner size="lg" /></div>
-        ) : colleges.length === 0 ? (
-          <div className="card text-center py-10 text-gray-500">No colleges yet. Add one above.</div>
-        ) : (
-          <div className="card p-0 overflow-hidden">
-            <ul className="divide-y divide-gray-100">
-              {colleges.map((college, i) => (
-                <li key={college._id} className="flex items-center justify-between px-5 py-3.5 hover:bg-gray-50 transition">
-                  <div>
-                    <p className="font-medium text-gray-800 text-sm">{college.name}</p>
-                    {college.location && <p className="text-xs text-gray-500 mt-0.5">{college.location}</p>}
+        {/* List */}
+        <div className="panel">
+          <div className="panel-head">
+            <div>
+              <p className="text-[13.5px] font-bold text-ink-800">
+                {colleges.length.toLocaleString('en-IN')} College{colleges.length === 1 ? '' : 's'}
+              </p>
+              <p className="text-[12px] text-ink-400 mt-0.5">In this workspace only</p>
+            </div>
+            <div className="relative">
+              <IconSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-400 pointer-events-none" />
+              <input className="form-input pl-9 w-full sm:w-60" type="search" placeholder="Search colleges…"
+                value={query} onChange={e => setQuery(e.target.value)} />
+            </div>
+          </div>
+
+          {loading ? (
+            <div className="flex justify-center py-20"><Spinner size="lg" /></div>
+          ) : colleges.length === 0 ? (
+            <div className="text-center py-20 px-6">
+              <div className="w-12 h-12 rounded-xl bg-surface-100 flex items-center justify-center mx-auto mb-3">
+                <IconBuilding size={22} className="text-ink-400" />
+              </div>
+              <p className="font-medium text-ink-700">No colleges yet</p>
+              <p className="text-[13px] text-ink-400 mt-1">
+                Add your first college on the left — your forms will be able to offer it right away.
+              </p>
+            </div>
+          ) : visible.length === 0 ? (
+            <div className="text-center py-16 px-6">
+              <p className="font-medium text-ink-700">No colleges match “{query}”</p>
+              <button className="btn-secondary mt-4" onClick={() => setQuery('')}>Clear search</button>
+            </div>
+          ) : (
+            <ul className="divide-y divide-surface-200">
+              {visible.map(college => (
+                <li key={college._id}
+                  className={`group flex items-center gap-3 px-5 py-3.5 transition-colors duration-150
+                              ${editId === college._id ? 'bg-brand-50/60' : 'hover:bg-surface-50'}`}>
+                  <div className="w-9 h-9 rounded-lg bg-surface-100 flex items-center justify-center flex-shrink-0">
+                    <IconBuilding size={16} className="text-ink-400" />
                   </div>
-                  <div className="flex gap-2">
-                    <button onClick={() => startEdit(college)} className="btn-secondary text-xs py-1 px-3">Edit</button>
-                    <button onClick={() => handleDelete(college._id)} className="btn-danger text-xs py-1 px-3">Delete</button>
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium text-ink-800 text-[14px] truncate">{college.name}</p>
+                    <p className="text-[12px] text-ink-400 truncate">{college.location || 'No location set'}</p>
+                  </div>
+                  <div className="flex items-center gap-0.5 sm:opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+                    <button onClick={() => startEdit(college)} title="Edit college"
+                      className="icon-btn hover:!bg-brand-50 hover:!text-brand-700"><IconEdit /></button>
+                    <button onClick={() => handleDelete(college)} title="Delete college"
+                      className="icon-btn hover:!bg-red-50 hover:!text-red-600"><IconTrash /></button>
                   </div>
                 </li>
               ))}
             </ul>
-          </div>
-        )}
+          )}
+
+          {!loading && colleges.length > 0 && (
+            <div className="px-5 py-3.5 border-t border-surface-200 bg-surface-50 flex items-center justify-between gap-3 flex-wrap">
+              <p className="text-[12.5px] text-ink-500">
+                Showing {visible.length} of {colleges.length}
+              </p>
+              <Link to={ADMIN_FORMS} className="btn-ghost !text-brand-700">
+                Use these in a form <IconArrowRight />
+              </Link>
+            </div>
+          )}
+        </div>
       </div>
     </AdminLayout>
   )

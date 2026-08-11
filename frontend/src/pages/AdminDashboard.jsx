@@ -1,19 +1,26 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import API from '../utils/api'
 import AdminLayout from '../components/AdminLayout'
 import Spinner from '../components/Spinner'
+import {
+  IconSearch, IconFilter, IconDownload, IconClipboard, IconCalendar, IconDocument,
+  IconEdit, IconEye, IconTrash, IconClose, IconChevronLeft, IconChevronRight, IconArchive
+} from '../components/Icons'
+
+// ── Applications ────────────────────────────────────────────────────────────
+// Every category, count and label on this page comes from the Form documents
+// that exist in the ACTIVE WORKSPACE (GET /api/applications/stats). There is
+// deliberately no list of application sources anywhere in this file: create a
+// form and it appears here, rename it and the label follows, archive it and
+// its applications stay reachable. Filtering is sent to the server as a form
+// _id — never as a text match on a name.
 
 const ROLE_OPTIONS = [
   'Junior Data Engineer',
   'Junior Data Scientist – Generative AI',
   'Sales Executive (Inside Sales / Junior Sales Track)'
 ]
-
-const SOURCE_LABELS = {
-  official_college: 'Official College',
-  instagram:        'Instagram',
-  missed_test:      'Missed Test'
-}
 
 const RESUME_EXT_BY_MIME = {
   'application/pdf': 'pdf',
@@ -25,263 +32,527 @@ const RESUME_EXT_BY_MIME = {
   'image/webp': 'webp'
 }
 
-const initialFilters = {
-  source: '', college: '', role: '', dateFrom: '', dateTo: ''
+const PAGE_SIZE = 15
+const emptyFilters = { form: '', college: '', role: '', dateFrom: '', dateTo: '' }
+
+const fmtDate = d => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'
+const fmtDateTime = d => d ? new Date(d).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : '—'
+const initials = n => (n || '').split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join('') || '?'
+
+// A palette rotated over the workspace's own forms, keyed by position in the
+// list — no colour is ever tied to a particular form name.
+const FORM_ACCENTS = [
+  { bar: 'bg-brand-500',   soft: 'bg-brand-50',   text: 'text-brand-700',   ring: 'ring-brand-200' },
+  { bar: 'bg-blue-500',    soft: 'bg-blue-50',    text: 'text-blue-700',    ring: 'ring-blue-200' },
+  { bar: 'bg-purple-500',  soft: 'bg-purple-50',  text: 'text-purple-700',  ring: 'ring-purple-200' },
+  { bar: 'bg-amber-500',   soft: 'bg-amber-50',   text: 'text-amber-700',   ring: 'ring-amber-200' },
+  { bar: 'bg-teal-500',    soft: 'bg-teal-50',    text: 'text-teal-700',    ring: 'ring-teal-200' },
+  { bar: 'bg-rose-500',    soft: 'bg-rose-50',    text: 'text-rose-700',    ring: 'ring-rose-200' },
+  { bar: 'bg-indigo-500',  soft: 'bg-indigo-50',  text: 'text-indigo-700',  ring: 'ring-indigo-200' },
+  { bar: 'bg-cyan-500',    soft: 'bg-cyan-50',    text: 'text-cyan-700',    ring: 'ring-cyan-200' }
+]
+
+const ROLE_BADGE = {
+  'Junior Data Engineer': 'badge-indigo',
+  'Junior Data Scientist – Generative AI': 'badge-purple',
+  'Sales Executive (Inside Sales / Junior Sales Track)': 'badge-amber'
 }
 
-function sourceLabel(s) {
-  // Legacy documents without `source` are official college applications
-  return SOURCE_LABELS[s?.source] || SOURCE_LABELS.official_college
+// ── Candidate edit modal ────────────────────────────────────────────────────
+// There is NO fixed field list here. The server returns the fields that
+// candidate actually has: for someone who registered through a Custom Form
+// those are that form's own fields, in its order, with their answers — a form
+// with four fields shows four. Only candidates who came through the built-in
+// intake application get the intake field set, because they genuinely have it.
+function FieldInput({ field, value, onChange }) {
+  const common = { className: 'form-input', placeholder: field.placeholder || '' }
+
+  if (field.type === 'college') {
+    // Same options the candidate was offered — never free text
+    return (
+      <select {...common} value={value || ''} onChange={e => onChange(e.target.value)}>
+        <option value="">Select college…</option>
+        {(field.collegeOptions || []).map(n => <option key={n} value={n}>{n}</option>)}
+      </select>
+    )
+  }
+  if (field.type === 'dropdown' || field.type === 'radio') {
+    return (
+      <select {...common} value={value || ''} onChange={e => onChange(e.target.value)}>
+        <option value="">Select…</option>
+        {(field.options || []).map(o => <option key={o} value={o}>{o}</option>)}
+      </select>
+    )
+  }
+  if (field.type === 'checkbox') {
+    const arr = Array.isArray(value) ? value : (value ? String(value).split(', ') : [])
+    return (
+      <div className="space-y-1.5">
+        {(field.options || []).map(o => (
+          <label key={o} className="flex items-center gap-2.5 text-[13.5px] text-ink-700 cursor-pointer">
+            <input type="checkbox" checked={arr.includes(o)}
+              onChange={e => onChange(e.target.checked ? [...arr, o] : arr.filter(x => x !== o))} />
+            {o}
+          </label>
+        ))}
+      </div>
+    )
+  }
+  if (field.type === 'textarea') {
+    return <textarea {...common} rows={3} value={value || ''} onChange={e => onChange(e.target.value)} />
+  }
+  const inputType = field.type === 'date' ? 'date'
+    : field.type === 'number' ? 'number'
+    : field.type === 'email' ? 'email'
+    : field.type === 'phone' ? 'tel' : 'text'
+  return <input type={inputType} {...common} value={value || ''} onChange={e => onChange(e.target.value)} />
 }
 
-function EditModal({ student, onClose, onSave }) {
-  const [form, setForm] = useState({ ...student })
+function EditModal({ student, onClose, onSaved }) {
+  const [detail, setDetail] = useState(null)
+  const [values, setValues] = useState({})
+  const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    API.get(`/api/applications/candidates/${student._id}`)
+      .then(res => {
+        if (cancelled) return
+        setDetail(res.data)
+        setValues(Object.fromEntries(res.data.fields.map(f => [f._id, f.value])))
+      })
+      .catch(err => { if (!cancelled) setError(err.response?.data?.message || 'Failed to load candidate') })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [student._id])
 
   async function handleSave() {
     setSaving(true)
+    setError('')
     try {
-      const res = await API.put(`/api/students/${student._id}`, form)
-      onSave(res.data)
+      // Form-origin candidates are saved as responses keyed by their own field
+      // ids; intake candidates keep their existing named-field payload.
+      const payload = detail.origin === 'form'
+        ? { responses: values }
+        : values
+      await API.put(`/api/applications/candidates/${student._id}`, payload)
+      onSaved()
       onClose()
     } catch (err) {
-      alert(err.response?.data?.message || 'Save failed')
+      setError(err.response?.data?.message || 'Save failed')
     } finally {
       setSaving(false)
     }
   }
 
-  const fields = [
-    { key: 'name', label: 'Full Name' },
-    { key: 'email', label: 'Email' },
-    { key: 'phone', label: 'Phone' },
-    { key: 'aadhar', label: 'Aadhar Number' },
-    { key: 'country', label: 'Country' },
-    { key: 'state', label: 'State' },
-    { key: 'city', label: 'City' },
-    { key: 'address', label: 'Address' },
-    { key: 'college', label: 'College' },
-    { key: 'customCollege', label: 'College (Custom)' },
-    { key: 'course', label: 'Course' },
-    { key: 'customCourse', label: 'Course (Custom)' },
-    { key: 'branch', label: 'Branch' },
-    { key: 'customBranch', label: 'Branch (Custom)' },
-  ]
+  const subtitle = detail?.origin === 'form'
+    ? `Fields from “${detail.form?.name || 'this form'}”`
+    : detail ? 'Application details' : undefined
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] flex flex-col">
-        <div className="flex items-center justify-between p-5 border-b">
-          <h3 className="font-heading font-bold text-lg">Edit Application</h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl">&times;</button>
-        </div>
-        <div className="overflow-y-auto p-5 space-y-3 flex-1">
-          {fields.map(f => (
-            <div key={f.key}>
-              <label className="form-label">{f.label}</label>
-              <input className="form-input" value={form[f.key] || ''} onChange={e => setForm(p => ({ ...p, [f.key]: e.target.value }))} />
-            </div>
-          ))}
-          <div>
-            <label className="form-label">Experience</label>
-            <select className="form-input" value={form.experience || ''} onChange={e => setForm(p => ({ ...p, experience: e.target.value }))}>
-              {['Fresher', '0-3 Years', '3+ Years'].map(x => <option key={x}>{x}</option>)}
-            </select>
+    <Modal title="Edit Candidate" subtitle={subtitle} onClose={onClose} width="max-w-2xl">
+      {loading ? (
+        <div className="flex justify-center py-12"><Spinner size="lg" /></div>
+      ) : !detail ? (
+        <p className="text-red-600 text-sm">{error || 'Could not load this candidate.'}</p>
+      ) : (
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-4">
+            {detail.fields.map(f => (
+              <div key={f._id} className={['textarea', 'checkbox'].includes(f.type) ? 'sm:col-span-2' : ''}>
+                <label className="form-label">
+                  {f.label}{f.required && <span className="text-red-500"> *</span>}
+                </label>
+                <FieldInput field={f} value={values[f._id]}
+                  onChange={v => setValues(p => ({ ...p, [f._id]: v }))} />
+              </div>
+            ))}
           </div>
-          <div>
-            <label className="form-label">Selected Role</label>
-            <select className="form-input" value={form.selected_role || ''} onChange={e => setForm(p => ({ ...p, selected_role: e.target.value }))}>
-              <option value="">Select Role</option>
-              {ROLE_OPTIONS.map(r => <option key={r} value={r}>{r}</option>)}
-            </select>
+          {detail.fields.length === 0 && (
+            <p className="text-ink-400 text-[13.5px] text-center py-6">This form has no fields.</p>
+          )}
+          {error && <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2.5 mt-4">{error}</p>}
+          <div className="flex gap-3 justify-end pt-5 mt-5 border-t border-surface-200">
+            <button className="btn-secondary" onClick={onClose}>Cancel</button>
+            <button className="btn-primary" onClick={handleSave} disabled={saving}>
+              {saving ? <><Spinner /> Saving…</> : 'Save Changes'}
+            </button>
           </div>
+        </>
+      )}
+    </Modal>
+  )
+}
+
+// ── Candidate workflow chain ────────────────────────────────────────────────
+// Registration → Attendance → Reception → Counselling → AI Report.
+// `state` comes from the backend (services/candidateWorkflow), which is the
+// same code the public reception/counselling endpoints gate on — so this is a
+// readout of what the server will actually allow, not a frontend guess.
+const WORKFLOW_STEPS = [
+  { key: 'registration', label: 'Registration' },
+  { key: 'attendance',   label: 'Attendance' },
+  { key: 'reception',    label: 'Reception' },
+  { key: 'counselling',  label: 'Counselling' },
+  { key: 'aiReport',     label: 'AI Report' }
+]
+
+const STATE_STYLE = {
+  done:        { dot: 'bg-brand-500',  badge: 'badge-green',   text: 'Completed', mark: '✓' },
+  pending:     { dot: 'bg-amber-400',  badge: 'badge-amber',   text: 'Pending',   mark: '•' },
+  in_progress: { dot: 'bg-blue-400',   badge: 'badge-blue',    text: 'In progress', mark: '•' },
+  generating:  { dot: 'bg-blue-400',   badge: 'badge-blue',    text: 'Generating', mark: '•' },
+  failed:      { dot: 'bg-red-400',    badge: 'badge-red',     text: 'Failed',    mark: '!' },
+  blocked:     { dot: 'bg-red-400',    badge: 'badge-red',     text: 'Absent',    mark: '✕' },
+  locked:      { dot: 'bg-surface-300', badge: 'badge-neutral', text: 'Locked',   mark: '🔒' }
+}
+const styleFor = s => STATE_STYLE[s] || STATE_STYLE.locked
+
+// Compact 5-dot chain for the table cell
+function WorkflowPips({ workflow, onOpen }) {
+  if (!workflow) return <span className="text-ink-300">—</span>
+  return (
+    <button type="button" onClick={onOpen} title="View workflow progress"
+      className="flex items-center gap-1 group" aria-label="View workflow progress">
+      {WORKFLOW_STEPS.map((step, i) => {
+        const st = styleFor(workflow[step.key]?.state)
+        return (
+          <span key={step.key} className="flex items-center">
+            <span className={`w-2.5 h-2.5 rounded-full ${st.dot} ring-2 ring-white group-hover:scale-110 transition-transform`}
+              title={`${step.label}: ${st.text}`} />
+            {i < WORKFLOW_STEPS.length - 1 && <span className="w-1.5 h-px bg-surface-300" />}
+          </span>
+        )
+      })}
+    </button>
+  )
+}
+
+function WorkflowModal({ row, onClose }) {
+  const wf = row.workflow
+  return (
+    <Modal title="Candidate Workflow" subtitle={row.name} onClose={onClose} width="max-w-md">
+      <ol className="relative">
+        {WORKFLOW_STEPS.map((step, i) => {
+          const stage = wf?.[step.key]
+          const st = styleFor(stage?.state)
+          const last = i === WORKFLOW_STEPS.length - 1
+          return (
+            <li key={step.key} className="flex gap-3.5 pb-1">
+              <div className="flex flex-col items-center">
+                <span className={`w-7 h-7 rounded-full ${st.dot} text-white text-[12px] font-bold
+                                  flex items-center justify-center flex-shrink-0`}>
+                  {st.mark}
+                </span>
+                {!last && <span className="w-px flex-1 min-h-[26px] bg-surface-300 my-1" />}
+              </div>
+              <div className="pb-5 min-w-0 flex-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <p className="text-[14px] font-semibold text-ink-800">{step.label}</p>
+                  <span className={`badge ${st.badge}`}>
+                    {step.key === 'attendance' && stage?.detail ? stage.detail : st.text}
+                  </span>
+                </div>
+                {stage?.at && (
+                  <p className="text-[12px] text-ink-400 mt-1">
+                    {String(stage.at).match(/^\d{4}-\d{2}-\d{2}$/) ? stage.at : fmtDateTime(stage.at)}
+                  </p>
+                )}
+                {stage?.state === 'locked' && (
+                  <p className="text-[12px] text-ink-400 mt-1">
+                    Blocked until the previous stage is completed.
+                  </p>
+                )}
+              </div>
+            </li>
+          )
+        })}
+      </ol>
+      <p className="text-[12px] text-ink-400 border-t border-surface-200 pt-4">
+        Each stage is enforced by the backend — a candidate cannot skip ahead even by calling the API directly.
+      </p>
+    </Modal>
+  )
+}
+
+// ── Generic modal shell ─────────────────────────────────────────────────────
+function Modal({ title, subtitle, onClose, children, width = 'max-w-lg' }) {
+  useEffect(() => {
+    const onKey = e => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-ink-900/50 animate-fade-in" onClick={onClose}>
+      <div className={`bg-white rounded-2xl shadow-panel w-full ${width} max-h-[90vh] flex flex-col animate-scale-in`}
+        onClick={e => e.stopPropagation()}>
+        <div className="flex items-start justify-between gap-4 px-6 py-5 border-b border-surface-200">
+          <div className="min-w-0">
+            <h3 className="font-heading text-lg font-bold text-ink-900">{title}</h3>
+            {subtitle && <p className="text-[13px] text-ink-500 mt-0.5">{subtitle}</p>}
+          </div>
+          <button onClick={onClose} className="icon-btn flex-shrink-0" aria-label="Close"><IconClose /></button>
         </div>
-        <div className="p-5 border-t flex gap-3 justify-end">
-          <button className="btn-secondary" onClick={onClose}>Cancel</button>
-          <button className="btn-primary" onClick={handleSave} disabled={saving}>
-            {saving ? <><Spinner /> Saving...</> : 'Save Changes'}
-          </button>
-        </div>
+        <div className="overflow-y-auto scroll-slim px-6 py-5 flex-1">{children}</div>
       </div>
     </div>
   )
 }
 
-// ── Excel export (no external library needed) ──────────────────
-function exportToExcel(students) {
-  const headers = [
-    '#', 'Name', 'Email', 'Phone', 'Aadhar', 'Country', 'State', 'City', 'Address',
-    'College', 'Course', 'Branch', 'Experience', 'Role Applied', 'Source', 'Applied Date', 'Resume Link (admin login required)'
-  ]
+// ── Custom-form response detail ─────────────────────────────────────────────
+function SubmissionModal({ id, onClose }) {
+  const [data, setData] = useState(null)
+  const [error, setError] = useState('')
 
+  useEffect(() => {
+    API.get(`/api/applications/submissions/${id}`)
+      .then(res => setData(res.data))
+      .catch(err => setError(err.response?.data?.message || 'Failed to load application'))
+  }, [id])
+
+  return (
+    <Modal title="Application Details" subtitle={data?.formName} onClose={onClose} width="max-w-xl">
+      {error ? <p className="text-red-600 text-sm">{error}</p>
+        : !data ? <div className="flex justify-center py-10"><Spinner size="lg" /></div>
+        : (
+          <>
+            <div className="flex items-center gap-2 mb-5 text-[13px] text-ink-500">
+              <IconCalendar size={14} /> Submitted {fmtDateTime(data.submittedAt)}
+            </div>
+            {data.answers.length === 0 ? (
+              <p className="text-ink-400 text-sm">This form has no fields.</p>
+            ) : (
+              <dl className="divide-y divide-surface-200">
+                {data.answers.map((a, i) => (
+                  <div key={i} className="py-3 grid grid-cols-3 gap-4">
+                    <dt className="text-[13px] text-ink-500 col-span-1">{a.label}</dt>
+                    <dd className="text-sm text-ink-800 font-medium col-span-2 break-words">{a.value || '—'}</dd>
+                  </div>
+                ))}
+              </dl>
+            )}
+          </>
+        )}
+    </Modal>
+  )
+}
+
+// ── CSV export ──────────────────────────────────────────────────────────────
+function exportToExcel(rows) {
+  const headers = [
+    '#', 'Form', 'Type', 'Name', 'Email', 'Phone', 'Aadhar', 'Country', 'State', 'City', 'Address',
+    'College', 'Course', 'Branch', 'Experience', 'Role Applied', 'Registered', 'Counselling',
+    'Submitted', 'Resume Link (admin login required)'
+  ]
   const apiBase = API.defaults.baseURL || ''
 
-  const rows = students.map((s, i) => [
+  const body = rows.map((r, i) => [
     i + 1,
-    s.name,
-    s.email,
-    s.phone,
-    s.aadhar,
-    s.country,
-    s.state,
-    s.city,
-    s.address || '',
-    s.college === 'Others' ? (s.customCollege || '') : s.college,
-    s.course  === 'Others' ? (s.customCourse  || '') : s.course,
-    s.branch  === 'Others' ? (s.customBranch  || '') : s.branch,
-    s.experience,
-    s.selected_role,
-    sourceLabel(s),
-    new Date(s.createdAt).toLocaleDateString('en-IN'),
-    `${apiBase}/api/students/${s._id}/resume`
+    r.formName,
+    r.kind === 'student' ? 'Intake Application' : 'Form Response',
+    r.name, r.email, r.phone,
+    r.aadhar || '', r.country || '', r.state || '', r.city || '', r.address || '',
+    r.college || '',
+    r.course === 'Others' ? (r.customCourse || '') : (r.course || ''),
+    r.branch === 'Others' ? (r.customBranch || '') : (r.branch || ''),
+    r.experience || '', r.selected_role || '',
+    r.registrationStatus === 'REGISTERED' ? 'Registered' : (r.kind === 'student' ? 'Not Registered' : ''),
+    r.counsellingStatus === 'COMPLETED' ? 'Completed' : (r.kind === 'student' ? 'Pending' : ''),
+    new Date(r.submittedAt).toLocaleString('en-IN'),
+    r.kind === 'student' ? `${apiBase}/api/students/${r._id}/resume` : ''
   ])
 
-  // Build CSV (Excel opens it natively)
   const escape = v => `"${String(v ?? '').replace(/"/g, '""')}"`
-  const csv = [headers, ...rows].map(r => r.map(escape).join(',')).join('\r\n')
-
-  // UTF-8 BOM so Excel renders Indian characters correctly
+  const csv = [headers, ...body].map(r => r.map(escape).join(',')).join('\r\n')
   const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' })
-  const url  = URL.createObjectURL(blob)
-  const a    = document.createElement('a')
-  a.href     = url
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
   a.download = `applications_${new Date().toISOString().slice(0, 10)}.csv`
   a.click()
   URL.revokeObjectURL(url)
 }
 
-// ── Stats card ──────────────────────────────────────────────────
-function StatCard({ label, value, icon, accent }) {
+// ── Overview stat card ──────────────────────────────────────────────────────
+function OverviewCard({ label, value, sub, icon, tone, loading }) {
   return (
-    <div className="card flex items-center gap-4 py-4">
-      <div className={`w-11 h-11 rounded-lg flex items-center justify-center text-xl ${accent}`}>
-        {icon}
-      </div>
-      <div>
-        <p className="text-2xl font-bold text-gray-800 leading-tight">{value ?? '—'}</p>
-        <p className="text-gray-500 text-xs mt-0.5">{label}</p>
+    <div className="card !p-5 card-hover">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[12.5px] font-medium text-ink-500">{label}</p>
+          {loading
+            ? <div className="skeleton h-8 w-20 mt-2 rounded-md" />
+            : <p className="font-heading text-[30px] leading-none font-bold text-ink-900 mt-2 tabular-nums">
+                {(value ?? 0).toLocaleString('en-IN')}
+              </p>}
+          {sub && <p className="text-[12px] text-ink-400 mt-2">{sub}</p>}
+        </div>
+        <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${tone}`}>{icon}</div>
       </div>
     </div>
   )
 }
 
-// ── Top colleges list panel ─────────────────────────────────────
-function TopCollegesPanel({ title, icon, items }) {
-  const max = items?.[0]?.count || 1
+// ── Dynamic form card ───────────────────────────────────────────────────────
+function FormStatCard({ form, accent, share, active, onSelect }) {
+  const archived = form.status !== 'Active'
+  const clickable = !!form._id
+
   return (
-    <div className="card py-4">
-      <h3 className="font-heading text-sm font-bold text-gray-700 mb-3 flex items-center gap-2">
-        <span>{icon}</span> {title}
-      </h3>
-      {!items?.length ? (
-        <p className="text-gray-400 text-sm py-2">No applications yet.</p>
-      ) : (
-        <ul className="space-y-2 overflow-y-auto pr-1" style={{ maxHeight: '300px' }}>
-          {items.map((c, i) => (
-            <li key={c.college} className="text-sm">
-              <div className="flex items-center justify-between gap-2 mb-0.5">
-                <span className="text-gray-700 truncate" title={c.college}>
-                  <span className="text-gray-400 mr-1.5">{i + 1}.</span>{c.college}
-                </span>
-                <span className="font-semibold text-gray-800 flex-shrink-0">{c.count}</span>
-              </div>
-              <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                <div className="h-full bg-brand-500 rounded-full" style={{ width: `${(c.count / max) * 100}%` }} />
-              </div>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
+    <button
+      type="button"
+      disabled={!clickable}
+      onClick={() => clickable && onSelect(active ? '' : form._id)}
+      className={`text-left w-full bg-white rounded-xl border shadow-card p-4 transition-all duration-200
+                  ${clickable ? 'hover:shadow-lift hover:-translate-y-0.5 cursor-pointer' : 'cursor-default'}
+                  ${active ? 'border-brand-500 ring-4 ring-brand-500/10' : 'border-surface-200 hover:border-surface-300'}`}
+    >
+      <div className="flex items-start justify-between gap-2 mb-3">
+        <p className="text-[13.5px] font-semibold text-ink-800 leading-snug line-clamp-2" title={form.name}>
+          {form.name}
+        </p>
+        {archived && (
+          <span className="badge badge-neutral flex-shrink-0" title="This form is no longer accepting submissions">
+            <IconArchive size={11} /> Archived
+          </span>
+        )}
+      </div>
+
+      <p className="font-heading text-[26px] leading-none font-bold text-ink-900 tabular-nums">
+        {form.count.toLocaleString('en-IN')}
+      </p>
+      <p className="text-[12px] text-ink-400 mt-1.5">
+        application{form.count === 1 ? '' : 's'}
+        {form.today > 0 && <span className="text-brand-600 font-medium"> · {form.today} today</span>}
+      </p>
+
+      <div className="mt-3.5 h-1.5 rounded-full bg-surface-200 overflow-hidden">
+        <div className={`h-full rounded-full transition-all duration-500 ${accent.bar}`} style={{ width: `${share}%` }} />
+      </div>
+    </button>
   )
 }
 
 export default function AdminDashboard() {
-  const [students, setStudents]   = useState([])
-  const [total, setTotal]         = useState(0)
-  const [page, setPage]           = useState(1)
-  const [pages, setPages]         = useState(1)
-  const [search, setSearch]       = useState('')
-  const [filters, setFilters]     = useState(initialFilters)
+  const [searchParams, setSearchParams] = useSearchParams()
+
+  const [rows, setRows]       = useState([])
+  const [total, setTotal]     = useState(0)
+  const [page, setPage]       = useState(1)
+  const [pages, setPages]     = useState(1)
+  const [search, setSearch]   = useState('')
+  const [searchInput, setSearchInput] = useState('')
+  const [filters, setFilters] = useState({ ...emptyFilters, form: searchParams.get('form') || '' })
   const [showFilters, setShowFilters] = useState(false)
-  const [stats, setStats]         = useState(null)
+  const [stats, setStats]     = useState(null)
   const [collegeOptions, setCollegeOptions] = useState([])
-  const [loading, setLoading]     = useState(true)
+  const [loading, setLoading] = useState(true)
+  const [statsLoading, setStatsLoading] = useState(true)
   const [exporting, setExporting] = useState(false)
   const [editStudent, setEditStudent] = useState(null)
-  const skipNextFilterFetch = useRef(true)
+  const [viewSubmission, setViewSubmission] = useState(null)
+  const [workflowRow, setWorkflowRow] = useState(null)
+  const firstRun = useRef(true)
 
-  function buildQuery(p, q, f, limit = 15) {
+  function buildQuery(p, q, f, limit = PAGE_SIZE) {
     const params = new URLSearchParams({ page: p, limit, search: q })
     Object.entries(f).forEach(([k, v]) => { if (v) params.set(k, v) })
     return params.toString()
   }
 
-  async function fetchStudents(p = 1, q = search, f = filters) {
+  async function fetchApplications(p = 1, q = search, f = filters) {
     setLoading(true)
     try {
-      const res = await API.get(`/api/students?${buildQuery(p, q, f)}`)
-      setStudents(res.data.students)
+      const res = await API.get(`/api/applications?${buildQuery(p, q, f)}`)
+      setRows(res.data.rows)
       setTotal(res.data.total)
       setPage(res.data.page)
       setPages(res.data.pages)
-    } catch { }
+    } catch { /* interceptor handles auth failures */ }
     setLoading(false)
   }
 
-  // Stats + unique college list (feeds the college filter dropdown)
   async function fetchMeta() {
+    setStatsLoading(true)
     try {
       const [statsRes, collegesRes] = await Promise.all([
-        API.get('/api/students/stats'),
-        API.get('/api/students/colleges')
+        API.get('/api/applications/stats'),
+        API.get('/api/applications/colleges')
       ])
       setStats(statsRes.data)
       setCollegeOptions(collegesRes.data)
-    } catch { }
+    } catch { /* ignore */ }
+    setStatsLoading(false)
   }
 
   useEffect(() => {
-    fetchStudents(1, '')
+    fetchApplications(1, '', filters)
     fetchMeta()
   }, [])
 
-  // Live filtering — debounced, no page reload
+  // Debounced live search + filtering — no page reload, no full refetch storm
   useEffect(() => {
-    if (skipNextFilterFetch.current) { skipNextFilterFetch.current = false; return }
-    const t = setTimeout(() => fetchStudents(1, search, filters), 350)
+    if (firstRun.current) { firstRun.current = false; return }
+    const t = setTimeout(() => {
+      setSearch(searchInput)
+      fetchApplications(1, searchInput, filters)
+    }, 350)
     return () => clearTimeout(t)
-  }, [filters])
+  }, [filters, searchInput])
 
-  function setFilter(key, value) {
-    setFilters(prev => ({ ...prev, [key]: value }))
-  }
+  // Keep the selected form in the URL so a filtered view can be linked to
+  // (the Forms page links straight here for built-in intake forms).
+  useEffect(() => {
+    const next = new URLSearchParams(searchParams)
+    filters.form ? next.set('form', filters.form) : next.delete('form')
+    setSearchParams(next, { replace: true })
+  }, [filters.form])
 
-  function clearFilters() {
-    setFilters(initialFilters)
-  }
+  const setFilter = (key, value) => setFilters(prev => ({ ...prev, [key]: value }))
+  const clearFilters = () => setFilters(emptyFilters)
+  const activeFilterCount = Object.entries(filters).filter(([, v]) => v).length
 
-  const hasActiveFilters = Object.values(filters).some(Boolean)
+  // Forms drive the tabs, the cards AND the filter dropdown — one source.
+  // Intake-only columns (Location / Experience / Role Applied) are rendered
+  // only when this workspace actually has candidates carrying that data.
+  const showIntakeColumns = !!stats?.hasIntakeApplications
+  const formList = stats?.forms || []
+  const selectableForms = formList.filter(f => f._id)
+  const maxCount = Math.max(1, ...formList.map(f => f.count))
+  const accentFor = i => FORM_ACCENTS[i % FORM_ACCENTS.length]
+  const accentByFormId = useMemo(() => {
+    const map = new Map()
+    formList.forEach((f, i) => { if (f._id) map.set(f._id, accentFor(i)) })
+    return map
+  }, [stats])
 
-  function handleSearch(e) {
-    e.preventDefault()
-    fetchStudents(1, search)
-  }
-
-  async function handleDelete(id) {
-    if (!confirm('Delete this application permanently?')) return
+  async function handleDeleteStudent(row) {
+    if (!confirm(`Delete ${row.name}'s application permanently?`)) return
     try {
-      await API.delete(`/api/students/${id}`)
-      fetchStudents(page, search)
+      await API.delete(`/api/students/${row._id}`)
+      fetchApplications(page, search, filters)
       fetchMeta()
     } catch { alert('Delete failed') }
   }
 
-  function resumeFilename(student, mime) {
-    const extFromName = (student.resume_original_name || '').split('.').pop().toLowerCase()
+  async function handleDeleteSubmission(row) {
+    if (!confirm(`Delete this response to "${row.formName}" permanently?`)) return
+    try {
+      await API.delete(`/api/applications/submissions/${row._id}`)
+      fetchApplications(page, search, filters)
+      fetchMeta()
+    } catch { alert('Delete failed') }
+  }
+
+  function resumeFilename(row, mime) {
+    const extFromName = (row.resume_original_name || '').split('.').pop().toLowerCase()
     const ext = RESUME_EXT_BY_MIME[mime]
-            || (['pdf', 'doc', 'docx', 'jpg', 'jpeg', 'png'].includes(extFromName) ? extFromName : 'pdf')
-    const safeName = student.name.replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_-]/g, '')
+      || (['pdf', 'doc', 'docx', 'jpg', 'jpeg', 'png'].includes(extFromName) ? extFromName : 'pdf')
+    const safeName = (row.name || 'candidate').replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_-]/g, '')
     return `resume_${safeName}.${ext}`
   }
 
@@ -294,31 +565,23 @@ export default function AdminDashboard() {
     URL.revokeObjectURL(blobUrl)
   }
 
-  // ── Resume viewer ───────────────────────────────────────────────
-  // Files stream through the authenticated /api/students/:id/resume proxy —
-  // there is no public Cloudinary URL on the client. PDFs and images open
-  // inline in a new tab; Word documents download with a proper filename.
-  function handleViewResume(student) {
-    // Open the tab synchronously (inside the click) so popup blockers allow it
+  // Resumes stream through the authenticated proxy — no public Cloudinary URL
+  // ever reaches the client.
+  function handleViewResume(row) {
     const win = window.open('', '_blank')
     if (win) win.document.write('<p style="font-family:sans-serif;color:#666">Loading resume…</p>')
-
     ;(async () => {
       try {
-        const res = await API.get(`/api/students/${student._id}/resume`, { responseType: 'blob' })
+        const res = await API.get(`/api/students/${row._id}/resume`, { responseType: 'blob' })
         const mime = res.data.type || 'application/pdf'
-
-        // Browsers can't render Word files — hand them over as a download
         if (mime.includes('msword') || mime.includes('wordprocessingml')) {
           if (win) win.close()
-          saveBlob(res.data, resumeFilename(student, mime))
+          saveBlob(res.data, resumeFilename(row, mime))
           return
         }
-
         const blobUrl = URL.createObjectURL(res.data)
         if (win) win.location = blobUrl
         else window.open(blobUrl, '_blank')
-        // Give the tab time to load before releasing the blob
         setTimeout(() => URL.revokeObjectURL(blobUrl), 60000)
       } catch {
         if (win) win.close()
@@ -327,122 +590,80 @@ export default function AdminDashboard() {
     })()
   }
 
-  // ── Resume download — via the authenticated proxy ───────────────
-  async function handleDownloadResume(student) {
+  async function handleDownloadResume(row) {
     try {
-      const res = await API.get(`/api/students/${student._id}/resume?download=1`, { responseType: 'blob' })
-      saveBlob(res.data, resumeFilename(student, res.data.type))
+      const res = await API.get(`/api/students/${row._id}/resume?download=1`, { responseType: 'blob' })
+      saveBlob(res.data, resumeFilename(row, res.data.type))
     } catch { alert('Resume not found') }
   }
 
-  // ── Export ALL matching students (respects current filters) ────
   async function handleExport() {
     setExporting(true)
     try {
-      const res = await API.get(`/api/students?${buildQuery(1, search, filters, 10000)}`)
-      exportToExcel(res.data.students)
+      const res = await API.get(`/api/applications?${buildQuery(1, search, filters, 10000)}`)
+      exportToExcel(res.data.rows)
     } catch { alert('Export failed') }
     setExporting(false)
   }
 
-  const roleColors = {
-    'Junior Data Engineer':                          'bg-indigo-100 text-indigo-700',
-    'Junior Data Scientist – Generative AI':         'bg-purple-100 text-purple-700',
-    'Sales Executive (Inside Sales / Junior Sales Track)': 'bg-orange-100 text-orange-700'
+  async function handleDeleteRegistration(row) {
+    if (!confirm(`Delete ${row.name}'s reception registration? Their photo and check-in record will be removed and they will need to check in again from scratch.`)) return
+    try {
+      await API.delete(`/api/reception/registration/${row._id}`)
+      fetchApplications(page, search, filters)
+    } catch { alert('Delete failed') }
   }
 
-  const sourceTabs = [
-    { value: '',                 label: 'All Applications' },
-    { value: 'official_college', label: 'Official College' },
-    { value: 'instagram',        label: 'Instagram' },
-    { value: 'missed_test',      label: 'Missed Test' }
-  ]
+  const headerActions = (
+    <>
+      <div className="relative">
+        <IconSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-400 pointer-events-none" />
+        <input
+          type="search"
+          className="form-input pl-9 w-full sm:w-64"
+          placeholder="Search candidates…"
+          value={searchInput}
+          onChange={e => setSearchInput(e.target.value)}
+        />
+      </div>
+      <button
+        onClick={() => setShowFilters(v => !v)}
+        className={`btn-secondary ${activeFilterCount ? '!border-brand-400 !text-brand-700 !bg-brand-50' : ''}`}
+      >
+        <IconFilter /> Filter
+        {activeFilterCount > 0 && (
+          <span className="ml-0.5 text-[11px] font-bold bg-brand-600 text-white rounded-full w-[18px] h-[18px] flex items-center justify-center">
+            {activeFilterCount}
+          </span>
+        )}
+      </button>
+      <button onClick={handleExport} disabled={exporting} className="btn-secondary" title="Export all matching rows">
+        {exporting ? <Spinner /> : <IconDownload />} Export
+      </button>
+    </>
+  )
 
   return (
-    <AdminLayout>
-      {/* ── Statistics cards ── */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-4">
-        <StatCard label="Total Applications"            value={stats?.total}           icon="📊" accent="bg-brand-50"  />
-        <StatCard label="Official College Applications" value={stats?.officialCollege} icon="🏛️" accent="bg-blue-50"   />
-        <StatCard label="Instagram Applications"        value={stats?.instagram}       icon="📸" accent="bg-pink-50"   />
-        <StatCard label="Missed Test Applications"      value={stats?.missedTest}      icon="📝" accent="bg-amber-50"  />
-        <StatCard label="Today's Applications"          value={stats?.today}           icon="🗓️" accent="bg-green-50"  />
-      </div>
-
-      {/* ── Top colleges analytics ── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
-        <TopCollegesPanel title="Top Colleges"                              icon="🏆" items={stats?.topColleges} />
-        <TopCollegesPanel title="Top Colleges From Instagram Applications" icon="📸" items={stats?.topInstagramColleges} />
-      </div>
-
-      {/* Header row */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
-        <div>
-          <h2 className="font-heading text-2xl font-bold text-gray-800">Applications</h2>
-          <p className="text-gray-500 text-sm">{total} total applications</p>
-        </div>
-        <div className="flex flex-wrap gap-2 items-center">
-          <form onSubmit={handleSearch} className="flex gap-2">
-            <input
-              type="text"
-              className="form-input w-56"
-              placeholder="Search name, email, college..."
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-            />
-            <button type="submit" className="btn-primary px-4 py-2 text-sm">Search</button>
-            {search && (
-              <button type="button" className="btn-secondary" onClick={() => { setSearch(''); fetchStudents(1, '') }}>Clear</button>
-            )}
-          </form>
-          {/* Filters toggle */}
-          <button
-            onClick={() => setShowFilters(v => !v)}
-            className={`btn-secondary flex items-center gap-1.5 text-sm ${hasActiveFilters ? 'ring-1 ring-brand-400' : ''}`}
-            title="Show filters"
-          >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
-            </svg>
-            Filters{hasActiveFilters ? ' •' : ''}
-          </button>
-          {/* Excel export button */}
-          <button
-            onClick={handleExport}
-            disabled={exporting}
-            className="btn-secondary flex items-center gap-1.5 text-sm"
-            title="Export all results to Excel/CSV"
-          >
-            {exporting ? <Spinner /> : (
-              <svg className="w-4 h-4 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3M3 17V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
-              </svg>
-            )}
-            Export Excel
-          </button>
-        </div>
-      </div>
-
-      {/* ── Source tabs ── */}
-      <div className="flex gap-2 mb-4">
-        {sourceTabs.map(tab => (
-          <button
-            key={tab.value}
-            onClick={() => setFilter('source', tab.value)}
-            className={`px-4 py-1.5 rounded-full text-sm font-medium transition border
-              ${filters.source === tab.value
-                ? 'bg-brand-600 text-white border-brand-600'
-                : 'bg-white text-gray-600 border-gray-200 hover:border-brand-300'}`}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
-
-      {/* ── Advanced filters (live — no page reload) ── */}
+    <AdminLayout
+      title="Applications"
+      subtitle="Manage and review candidates across your recruitment forms."
+      actions={headerActions}
+    >
+      {/* ── Filters ── */}
       {showFilters && (
-        <div className="card mb-4 py-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
+        <div className="card !p-5 mb-6 animate-fade-up">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
+            <div>
+              <label className="form-label">Form</label>
+              <select className="form-input" value={filters.form} onChange={e => setFilter('form', e.target.value)}>
+                <option value="">All Applications</option>
+                {selectableForms.map(f => (
+                  <option key={f._id} value={f._id}>
+                    {f.name}{f.status !== 'Active' ? ' (Archived)' : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
             <div>
               <label className="form-label">College</label>
               <select className="form-input" value={filters.college} onChange={e => setFilter('college', e.target.value)}>
@@ -458,193 +679,377 @@ export default function AdminDashboard() {
               </select>
             </div>
             <div>
-              <label className="form-label">Source</label>
-              <select className="form-input" value={filters.source} onChange={e => setFilter('source', e.target.value)}>
-                <option value="">All Sources</option>
-                <option value="official_college">Official College</option>
-                <option value="instagram">Instagram</option>
-                <option value="missed_test">Missed Test</option>
-              </select>
-            </div>
-            <div>
               <label className="form-label">From Date</label>
-              <input
-                type="date"
-                className="form-input"
-                value={filters.dateFrom}
-                onChange={e => setFilter('dateFrom', e.target.value)}
-              />
+              <input type="date" className="form-input" value={filters.dateFrom} onChange={e => setFilter('dateFrom', e.target.value)} />
             </div>
             <div>
               <label className="form-label">To Date</label>
-              <input
-                type="date"
-                className="form-input"
-                value={filters.dateTo}
-                onChange={e => setFilter('dateTo', e.target.value)}
-              />
+              <input type="date" className="form-input" value={filters.dateTo} onChange={e => setFilter('dateTo', e.target.value)} />
             </div>
           </div>
-          {hasActiveFilters && (
-            <div className="mt-3 flex justify-end">
-              <button className="btn-secondary text-sm" onClick={clearFilters}>Clear All Filters</button>
+          {activeFilterCount > 0 && (
+            <div className="mt-4 pt-4 border-t border-surface-200 flex justify-between items-center gap-3">
+              <p className="text-[13px] text-ink-500">
+                {activeFilterCount} filter{activeFilterCount === 1 ? '' : 's'} applied
+                {filters.role && <span className="text-ink-400"> · role filters exclude custom-form responses</span>}
+              </p>
+              <button className="btn-ghost" onClick={clearFilters}>Clear all</button>
             </div>
           )}
         </div>
       )}
 
-      {loading ? (
-        <div className="flex justify-center py-20"><Spinner size="lg" /></div>
-      ) : students.length === 0 ? (
-        <div className="card text-center py-16 text-gray-500">No applications found.</div>
-      ) : (
-        <>
-          <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-gray-50 border-b border-gray-200">
-                    {['#', 'Name', 'Email', 'Phone', 'Aadhar', 'Country', 'State', 'City',
-                      'College', 'Course', 'Branch', 'Experience', 'Role Applied', 'Source', 'Applied', 'Photo', 'Registered', 'Counselling', 'Actions'].map(h => (
-                    <th key={h} className="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wide whitespace-nowrap">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {students.map((s, i) => (
-                  <tr key={s._id} className="border-b border-gray-100 hover:bg-gray-50 transition">
-                    <td className="px-4 py-3 text-gray-400">{(page - 1) * 15 + i + 1}</td>
-                    <td className="px-4 py-3 font-medium text-gray-800 whitespace-nowrap">{s.name}</td>
-                    <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{s.email}</td>
-                    <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{s.phone}</td>
-                    <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{s.aadhar}</td>
-                    <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{s.country}</td>
-                    <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{s.state}</td>
-                    <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{s.city}</td>
-                    <td className="px-4 py-3 text-gray-600 max-w-[140px] truncate" title={s.college === 'Others' ? s.customCollege : s.college}>
-                      {s.college === 'Others' ? s.customCollege : s.college}
-                    </td>
-                    <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{s.course === 'Others' ? s.customCourse : s.course}</td>
-                    <td className="px-4 py-3 text-gray-600 max-w-[120px] truncate">{s.branch === 'Others' ? s.customBranch : s.branch}</td>
-                    <td className="px-4 py-3">
-                      <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${
-                        s.experience === 'Fresher'    ? 'bg-green-100 text-green-700'  :
-                        s.experience === '0-3 Years'  ? 'bg-blue-100 text-blue-700'    :
-                                                        'bg-purple-100 text-purple-700'
-                      }`}>
-                        {s.experience}
-                      </span>
-                    </td>
-                    {/* Role Applied — was missing */}
-                    <td className="px-4 py-3 min-w-[180px]">
-                      <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${roleColors[s.selected_role] || 'bg-gray-100 text-gray-700'}`}>
-                        {s.selected_role}
-                      </span>
-                    </td>
-                    {/* Source */}
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${
-                        s.source === 'instagram'   ? 'bg-pink-100 text-pink-700'
-                        : s.source === 'missed_test' ? 'bg-amber-100 text-amber-700'
-                        : 'bg-blue-100 text-blue-700'
-                      }`}>
-                        {sourceLabel(s)}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{new Date(s.createdAt).toLocaleDateString('en-IN')}</td>
-                    {/* Reception registration photo */}
-                    <td className="px-4 py-3">
-                      {s.registrationPhoto ? (
-                        <a href={s.registrationPhoto} target="_blank" rel="noreferrer" title="View registration photo">
-                          <img src={s.registrationPhoto} alt={s.name} className="w-10 h-10 rounded-full object-cover border border-gray-200" />
-                        </a>
-                      ) : (
-                        <span className="text-gray-300">—</span>
-                      )}
-                    </td>
-                    {/* Reception registration status */}
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      {s.registrationStatus === 'REGISTERED' ? (
-                        <span className="inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">Registered</span>
-                      ) : (
-                        <span className="inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700">Not Registered</span>
-                      )}
-                      {s.registrationTime && <div className="text-xs text-gray-500 mt-1">{new Date(s.registrationTime).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' })}</div>}
-                    </td>
-                    {/* Counselling status */}
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      {s.counsellingStatus === 'COMPLETED' ? (
-                        <span className="inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-700">Completed</span>
-                      ) : (
-                        <span className="inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700">Pending</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex gap-1">
-                        {/* Edit */}
-                        <button onClick={() => setEditStudent(s)} title="Edit" className="p-1.5 rounded hover:bg-brand-50 text-brand-600 transition">
-                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                          </svg>
-                        </button>
-                        {/* View resume — streams through authenticated proxy */}
-                        <button onClick={() => handleViewResume(s)} title="View Resume" className="p-1.5 rounded hover:bg-green-50 text-green-600 transition">
-                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                          </svg>
-                        </button>
-                        {/* Download resume */}
-                        <button onClick={() => handleDownloadResume(s)} title="Download Resume" className="p-1.5 rounded hover:bg-blue-50 text-blue-600 transition">
-                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                          </svg>
-                        </button>
-                        {/* Delete */}
-                        <button onClick={() => handleDelete(s._id)} title="Delete" className="p-1.5 rounded hover:bg-red-50 text-red-500 transition">
-                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                          </svg>
-                        </button>
-                        {/* Delete reception registration entirely (photo + record, reset to Not Registered) */}
-                        {(s.registrationStatus === 'REGISTERED' || s.registrationPhotoPublicId) && (
-                          <button onClick={async () => {
-                            if (!confirm(`Delete ${s.name}'s reception registration? Their photo and check-in record will be removed and they will need to check in again from scratch.`)) return
-                            try {
-                              await API.delete(`/api/reception/registration/${s._id}`)
-                              fetchStudents(page, search)
-                            } catch { alert('Delete failed') }
-                          }} title="Delete Registration" className="p-1.5 rounded hover:bg-red-50 text-red-500 transition">
-                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 7h12M9 3h6m-7 4v12a2 2 0 002 2h4a2 2 0 002-2V7" />
-                            </svg>
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+      {/* ── Application Overview ── */}
+      <section className="mb-7">
+        <div className="mb-3.5">
+          <h2 className="section-title">Application Overview</h2>
+          <p className="section-sub">Live totals across every form in this workspace.</p>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 stagger">
+          <OverviewCard
+            label="Total Applications" value={stats?.total} loading={statsLoading}
+            sub="All forms, all time"
+            icon={<IconClipboard size={19} className="text-brand-700" />} tone="bg-brand-50"
+          />
+          <OverviewCard
+            label="Today's Applications" value={stats?.today} loading={statsLoading}
+            sub="Received today"
+            icon={<IconCalendar size={19} className="text-blue-600" />} tone="bg-blue-50"
+          />
+          <OverviewCard
+            label="Active Forms" value={stats?.activeForms} loading={statsLoading}
+            sub={`${formList.length} total in this workspace`}
+            icon={<IconDocument size={19} className="text-purple-600" />} tone="bg-purple-50"
+          />
+        </div>
+      </section>
 
-          {/* Pagination */}
-          {pages > 1 && (
-            <div className="flex items-center justify-center gap-2 mt-4">
-              <button className="btn-secondary" disabled={page === 1} onClick={() => fetchStudents(page - 1, search)}>← Prev</button>
-              <span className="text-sm text-gray-600">Page {page} of {pages}</span>
-              <button className="btn-secondary" disabled={page === pages} onClick={() => fetchStudents(page + 1, search)}>Next →</button>
+      {/* ── Application Forms (fully dynamic) ── */}
+      <section className="mb-7">
+        <div className="mb-3.5 flex items-end justify-between gap-3 flex-wrap">
+          <div>
+            <h2 className="section-title">Application Forms</h2>
+            <p className="section-sub">Where applications in this workspace came from. Select one to filter the list.</p>
+          </div>
+          {filters.form && (
+            <button className="btn-ghost !text-brand-700" onClick={() => setFilter('form', '')}>Clear selection</button>
+          )}
+        </div>
+
+        {statsLoading ? (
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            {[0, 1, 2, 3].map(i => <div key={i} className="skeleton h-[132px] rounded-xl" />)}
+          </div>
+        ) : formList.length === 0 ? (
+          <div className="card text-center py-12">
+            <div className="w-12 h-12 rounded-xl bg-surface-100 flex items-center justify-center mx-auto mb-3">
+              <IconDocument size={22} className="text-ink-400" />
+            </div>
+            <p className="font-medium text-ink-700">No forms in this workspace yet</p>
+            <p className="text-[13px] text-ink-400 mt-1">
+              Create a form under Forms and its applications will appear here automatically.
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 stagger">
+            {formList.map((f, i) => (
+              <FormStatCard
+                key={f._id || 'unassigned'}
+                form={f}
+                accent={accentFor(i)}
+                share={Math.round((f.count / maxCount) * 100)}
+                active={filters.form === f._id}
+                onSelect={v => setFilter('form', v)}
+              />
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* ── Candidate Applications ── */}
+      <section>
+        <div className="mb-3.5">
+          <h2 className="section-title">Candidate Applications</h2>
+          <p className="section-sub">
+            {loading ? 'Loading…' : `${total.toLocaleString('en-IN')} application${total === 1 ? '' : 's'} match your view`}
+          </p>
+        </div>
+
+        {/* Dynamic category tabs */}
+        <div className="flex gap-2 mb-4 overflow-x-auto no-scrollbar pb-1">
+          <button
+            onClick={() => setFilter('form', '')}
+            className={`chip ${!filters.form ? 'chip-active' : 'chip-idle'}`}
+          >
+            All Applications
+            {stats && <span className="chip-count">{stats.total.toLocaleString('en-IN')}</span>}
+          </button>
+          {selectableForms.map(f => (
+            <button
+              key={f._id}
+              onClick={() => setFilter('form', f._id)}
+              className={`chip ${filters.form === f._id ? 'chip-active' : 'chip-idle'}`}
+              title={f.status !== 'Active' ? 'Archived form — historical applications remain available' : undefined}
+            >
+              {f.status !== 'Active' && <IconArchive size={12} />}
+              {f.name}
+              <span className="chip-count">{f.count.toLocaleString('en-IN')}</span>
+            </button>
+          ))}
+        </div>
+
+        <div className="panel">
+          {loading ? (
+            <div className="flex justify-center py-20"><Spinner size="lg" /></div>
+          ) : rows.length === 0 ? (
+            <div className="text-center py-20 px-6">
+              <div className="w-12 h-12 rounded-xl bg-surface-100 flex items-center justify-center mx-auto mb-3">
+                <IconSearch size={22} className="text-ink-400" />
+              </div>
+              <p className="font-medium text-ink-700">No applications found</p>
+              <p className="text-[13px] text-ink-400 mt-1">Try a different search term or clear your filters.</p>
+              {(activeFilterCount > 0 || search) && (
+                <button className="btn-secondary mt-4" onClick={() => { clearFilters(); setSearchInput('') }}>
+                  Clear search &amp; filters
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="table-scroll scroll-slim">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th className="w-12">#</th>
+                    <th>Candidate</th>
+                    <th>Contact</th>
+                    {showIntakeColumns && <th>Location</th>}
+                    <th>{showIntakeColumns ? 'Academics' : 'College'}</th>
+                    {showIntakeColumns && <th>Experience</th>}
+                    {showIntakeColumns && <th>Role Applied</th>}
+                    <th>Form</th>
+                    <th>Workflow</th>
+                    <th>Registered</th>
+                    <th>Counselling</th>
+                    <th>Submitted</th>
+                    <th className="text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r, i) => {
+                    const isStudent = r.kind === 'student'
+                    const accent = r.formId ? accentByFormId.get(r.formId) : null
+                    return (
+                      <tr key={`${r.kind}_${r._id}`}>
+                        <td className="text-ink-400 tabular-nums">{(page - 1) * PAGE_SIZE + i + 1}</td>
+
+                        {/* Candidate */}
+                        <td>
+                          <div className="flex items-center gap-3 min-w-[190px]">
+                            {r.registrationPhoto ? (
+                              <a href={r.registrationPhoto} target="_blank" rel="noreferrer" title="View registration photo" className="flex-shrink-0">
+                                <img src={r.registrationPhoto} alt="" className="w-9 h-9 rounded-full object-cover ring-1 ring-surface-300" />
+                              </a>
+                            ) : (
+                              <div className="w-9 h-9 rounded-full bg-surface-100 ring-1 ring-surface-200 flex items-center justify-center
+                                              text-[11px] font-bold text-ink-500 flex-shrink-0">
+                                {initials(r.name)}
+                              </div>
+                            )}
+                            <div className="min-w-0">
+                              <p className="font-semibold text-ink-800 truncate" title={r.name}>{r.name || 'Unnamed'}</p>
+                              <p className="text-[11.5px] text-ink-400 truncate">
+                                {isStudent ? (r.aadhar ? `Aadhar ${r.aadhar}` : r.gender || '—') : 'Form response'}
+                              </p>
+                            </div>
+                          </div>
+                        </td>
+
+                        {/* Contact */}
+                        <td>
+                          <div className="min-w-[170px]">
+                            <p className="text-ink-700 truncate" title={r.email}>{r.email || '—'}</p>
+                            <p className="text-[12px] text-ink-400">{r.phone || '—'}</p>
+                          </div>
+                        </td>
+
+                        {/* Location — intake-only, hidden when the workspace has none */}
+                        {showIntakeColumns && (
+                          <td>
+                            {r.city || r.state || r.country ? (
+                              <div className="min-w-[120px]">
+                                <p className="text-ink-700 truncate">{r.city || '—'}</p>
+                                {(r.state || r.country) && (
+                                  <p className="text-[12px] text-ink-400 truncate">
+                                    {[r.state, r.country].filter(Boolean).join(', ')}
+                                  </p>
+                                )}
+                              </div>
+                            ) : <span className="text-ink-300">—</span>}
+                          </td>
+                        )}
+
+                        {/* College (plus course/branch where the candidate has them) */}
+                        <td>
+                          <div className="max-w-[190px]">
+                            <p className="text-ink-700 truncate" title={r.college}>{r.college || '—'}</p>
+                            {(() => {
+                              const academics = [
+                                r.course === 'Others' ? r.customCourse : r.course,
+                                r.branch === 'Others' ? r.customBranch : r.branch
+                              ].filter(Boolean).join(' · ')
+                              // Only rendered when there is something to show —
+                              // a lone dash under every college is just noise.
+                              return academics
+                                ? <p className="text-[12px] text-ink-400 truncate">{academics}</p>
+                                : null
+                            })()}
+                          </div>
+                        </td>
+
+                        {/* Experience — intake-only */}
+                        {showIntakeColumns && (
+                          <td>
+                            {r.experience ? (
+                              <span className={`badge ${r.experience === 'Fresher' ? 'badge-green'
+                                : r.experience === '0-3 Years' ? 'badge-blue' : 'badge-purple'}`}>
+                                {r.experience}
+                              </span>
+                            ) : <span className="text-ink-300">—</span>}
+                          </td>
+                        )}
+
+                        {/* Role Applied — intake-only */}
+                        {showIntakeColumns && (
+                          <td>
+                            {r.selected_role ? (
+                              <span className={`badge ${ROLE_BADGE[r.selected_role] || 'badge-neutral'} max-w-[190px]`}>
+                                <span className="truncate">{r.selected_role}</span>
+                              </span>
+                            ) : <span className="text-ink-300">—</span>}
+                          </td>
+                        )}
+
+                        {/* Form — always the live form name */}
+                        <td>
+                          <span className={`badge ${accent ? `${accent.soft} ${accent.text} ring-1 ring-inset ${accent.ring}` : 'badge-neutral'} max-w-[170px]`}>
+                            {r.formStatus && r.formStatus !== 'Active' && <IconArchive size={11} />}
+                            <span className="truncate">{r.formName}</span>
+                          </span>
+                        </td>
+
+                        {/* Workflow chain */}
+                        <td>
+                          <WorkflowPips workflow={r.workflow} onOpen={() => setWorkflowRow(r)} />
+                        </td>
+
+                        {/* Reception */}
+                        <td>
+                          {isStudent ? (
+                            <>
+                              <span className={`badge ${r.registrationStatus === 'REGISTERED' ? 'badge-green' : 'badge-neutral'}`}>
+                                {r.registrationStatus === 'REGISTERED' ? 'Registered' : 'Not Registered'}
+                              </span>
+                              {r.registrationTime && (
+                                <p className="text-[11px] text-ink-400 mt-1">
+                                  {new Date(r.registrationTime).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' })}
+                                </p>
+                              )}
+                            </>
+                          ) : <span className="text-ink-300">—</span>}
+                        </td>
+
+                        {/* Counselling */}
+                        <td>
+                          {isStudent ? (
+                            <span className={`badge ${r.counsellingStatus === 'COMPLETED' ? 'badge-indigo' : 'badge-amber'}`}>
+                              {r.counsellingStatus === 'COMPLETED' ? 'Completed' : 'Pending'}
+                            </span>
+                          ) : <span className="text-ink-300">—</span>}
+                        </td>
+
+                        <td className="text-ink-500 whitespace-nowrap">{fmtDate(r.submittedAt)}</td>
+
+                        {/* Actions */}
+                        <td>
+                          <div className="flex items-center justify-end gap-0.5">
+                            {isStudent ? (
+                              <>
+                                <button onClick={() => setEditStudent(r)} title="Edit application"
+                                  className="icon-btn hover:!bg-brand-50 hover:!text-brand-700"><IconEdit /></button>
+                                {/* Resume actions only exist for candidates who
+                                    actually uploaded one — a form that never
+                                    asked for a resume gets no dead buttons. */}
+                                {r.resume_original_name && (
+                                  <>
+                                    <button onClick={() => handleViewResume(r)} title="View resume"
+                                      className="icon-btn hover:!bg-blue-50 hover:!text-blue-600"><IconEye /></button>
+                                    <button onClick={() => handleDownloadResume(r)} title="Download resume"
+                                      className="icon-btn hover:!bg-blue-50 hover:!text-blue-600"><IconDownload /></button>
+                                  </>
+                                )}
+                                {!r.resume_original_name && (
+                                  <button onClick={() => setEditStudent(r)} title="View details"
+                                    className="icon-btn hover:!bg-blue-50 hover:!text-blue-600"><IconEye /></button>
+                                )}
+                                {(r.registrationStatus === 'REGISTERED' || r.registrationPhotoPublicId) && (
+                                  <button onClick={() => handleDeleteRegistration(r)} title="Delete reception registration"
+                                    className="icon-btn hover:!bg-amber-50 hover:!text-amber-600"><IconArchive /></button>
+                                )}
+                                <button onClick={() => handleDeleteStudent(r)} title="Delete application"
+                                  className="icon-btn hover:!bg-red-50 hover:!text-red-600"><IconTrash /></button>
+                              </>
+                            ) : (
+                              <>
+                                <button onClick={() => setViewSubmission(r._id)} title="View response"
+                                  className="icon-btn hover:!bg-blue-50 hover:!text-blue-600"><IconEye /></button>
+                                <button onClick={() => handleDeleteSubmission(r)} title="Delete response"
+                                  className="icon-btn hover:!bg-red-50 hover:!text-red-600"><IconTrash /></button>
+                              </>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
             </div>
           )}
-        </>
-      )}
+
+          {/* Pagination */}
+          {!loading && rows.length > 0 && (
+            <div className="flex items-center justify-between gap-3 flex-wrap px-5 py-3.5 border-t border-surface-200 bg-surface-50">
+              <p className="text-[13px] text-ink-500">
+                Showing <span className="font-semibold text-ink-700">{(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, total)}</span> of{' '}
+                <span className="font-semibold text-ink-700">{total.toLocaleString('en-IN')}</span>
+              </p>
+              <div className="flex items-center gap-2">
+                <button className="btn-secondary !px-3" disabled={page === 1}
+                  onClick={() => fetchApplications(page - 1, search, filters)}>
+                  <IconChevronLeft /> Prev
+                </button>
+                <span className="text-[13px] text-ink-500 px-1">Page {page} of {pages}</span>
+                <button className="btn-secondary !px-3" disabled={page >= pages}
+                  onClick={() => fetchApplications(page + 1, search, filters)}>
+                  Next <IconChevronRight />
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </section>
 
       {editStudent && (
         <EditModal
           student={editStudent}
           onClose={() => setEditStudent(null)}
-          onSave={updated => setStudents(prev => prev.map(s => s._id === updated._id ? updated : s))}
+          // Editing can change the identity columns the table shows (and that
+          // reception/counselling match on), so refetch rather than patch.
+          onSaved={() => { fetchApplications(page, search, filters); fetchMeta() }}
         />
       )}
+      {viewSubmission && <SubmissionModal id={viewSubmission} onClose={() => setViewSubmission(null)} />}
+      {workflowRow && <WorkflowModal row={workflowRow} onClose={() => setWorkflowRow(null)} />}
     </AdminLayout>
   )
 }

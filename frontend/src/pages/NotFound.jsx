@@ -1,4 +1,5 @@
 import Header from '../components/Header'
+import { PublicFooter } from '../components/PublicShell'
 
 // Shown when a visitor lands on "/" or an unknown URL without ever having
 // opened one of the application forms. Deliberately links to NO form —
@@ -22,6 +23,7 @@ export default function NotFound() {
           </p>
         </div>
       </main>
+      <PublicFooter />
     </div>
   )
 }

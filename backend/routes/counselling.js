@@ -6,8 +6,10 @@ const AttendanceSession = require('../models/AttendanceSession');
 const CounsellingQuestion = require('../models/CounsellingQuestion');
 const CounsellingResponse = require('../models/CounsellingResponse');
 const ReceptionCheckin = require('../models/ReceptionCheckin');
+const Workspace = require('../models/Workspace');
 const counsellingAuth = require('../middleware/counsellingAuth');
 const { generateReportInBackground } = require('../services/aiReport');
+const { checkCounsellingEligibility } = require('../services/candidateWorkflow');
 
 // Today's calendar day in India — attendance dates are stored as IST days,
 // so the server's own timezone must not leak into eligibility checks.
@@ -57,7 +59,9 @@ async function resolveEligibleAttendance(student) {
   if (!presentRecords.length) return null;
 
   const latestRecord = presentRecords[0];
-  const session = await AttendanceSession.findOne({ college: latestRecord.college, date: latestRecord.date }).lean();
+  const session = await AttendanceSession.findOne({
+    workspace: student.workspace, college: latestRecord.college, date: latestRecord.date
+  }).lean();
 
   return {
     attendanceDate: latestRecord.date,
@@ -71,18 +75,38 @@ async function resolveEligibleAttendance(student) {
 // ── POST /api/counselling/verify ────────────────────────────────────────────
 // Student enters name + email + mobile. We match them to a registered student
 // and check whether they were ever marked Present in any attendance session.
+// Resolves which workspace a public counselling request targets: an
+// explicit per-workspace `token` (new links, e.g. /counselling/<token>) if
+// present and it matches an Active workspace, otherwise the one legacy
+// default-intake workspace the original un-tokened /counselling link
+// (already printed/circulated) has always pointed at.
+async function resolveCounsellingWorkspace(token) {
+  if (token) {
+    const ws = await Workspace.findOne({ counsellingToken: token, status: 'Active' }).select('_id').lean();
+    return ws ? ws._id : null;
+  }
+  const intake = await Workspace.findOne({ isDefaultIntake: true }).select('_id').lean();
+  return intake ? intake._id : null;
+}
+
 router.post('/verify', async (req, res) => {
   try {
     const name = clean(req.body.name);
     const email = clean(req.body.email).toLowerCase();
     const phone = clean(req.body.phone).replace(/\D/g, '').slice(-10);
+    const linkToken = clean(req.body.token);
 
     if (!name || name.length < 2) return res.status(400).json({ message: 'Please enter your full name' });
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ message: 'Please enter a valid email address' });
     if (phone.length !== 10) return res.status(400).json({ message: 'Please enter a valid 10-digit mobile number' });
 
-    // Match on email, then confirm the phone's last 10 digits agree
-    const candidates = await Student.find({ email }).select('name email phone college branch customBranch registrationStatus').lean();
+    // Match on email within the workspace this link belongs to (this form
+    // has no admin session to read a workspace selection from), then confirm
+    // the phone's last 10 digits agree
+    const workspaceId = await resolveCounsellingWorkspace(linkToken);
+    if (!workspaceId) return res.status(404).json({ message: 'This counselling link is invalid or no longer active.' });
+    const candidates = await Student.find({ email, workspace: workspaceId })
+      .select('name email phone college branch customBranch registrationStatus workspace').lean();
     const student = candidates.find(s => (s.phone || '').replace(/\D/g, '').slice(-10) === phone);
 
     if (!student) {
@@ -91,20 +115,19 @@ router.post('/verify', async (req, res) => {
       });
     }
 
+    // Workflow gate — attendance Present, then Reception completed. Shared
+    // with the reception route via services/candidateWorkflow so both stages
+    // enforce one definition of the chain.
+    const gate = await checkCounsellingEligibility(student, workspaceId);
+    if (!gate.ok) {
+      return res.status(gate.status).json({ code: gate.code, message: gate.message });
+    }
+
     const eligibleAttendance = await resolveEligibleAttendance(student);
     if (!eligibleAttendance) {
       return res.status(403).json({
         code: 'NOT_PRESENT',
         message: 'Your attendance has not been recorded yet. Please contact the coordinator.'
-      });
-    }
-
-    // Reception Registration gate — the student must complete the office
-    // check-in (photo capture at the entrance tablet) before counselling opens
-    if (student.registrationStatus !== 'REGISTERED') {
-      return res.status(403).json({
-        code: 'REGISTRATION_REQUIRED',
-        message: 'Reception Registration Required\n\nPlease complete Reception Registration first.'
       });
     }
 
@@ -123,6 +146,7 @@ router.post('/verify', async (req, res) => {
     if (!response) {
       response = await CounsellingResponse.create({
         student: student._id,
+        workspace: student.workspace,
         college,
         branch,
         batch,

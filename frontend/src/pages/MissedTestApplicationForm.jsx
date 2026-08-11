@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import API from '../utils/api'
 import Header from '../components/Header'
+import { PublicFooter as FooterInline } from '../components/PublicShell'
 import Spinner from '../components/Spinner'
 import { countries, statesByCountry, getCities, branchesByCourse } from '../utils/locationData'
 import { MISSED_TEST_THANKYOU_PATH, rememberFormSource } from '../utils/routes'
@@ -165,29 +166,6 @@ function SearchableSelect({ id, options, value, onChange, placeholder, disabled 
 }
 
 // ── Non-sticky footer ──────────────────────────────────────────────────────────
-function FooterInline() {
-  return (
-    <footer className="bg-brand-800 text-white">
-      <div className="max-w-4xl mx-auto px-4 py-4">
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-2 text-sm">
-          <div className="text-center sm:text-left">
-            <p className="font-heading font-bold text-sm">Mandi Hariyaanna Academy</p>
-            <p className="text-brand-300 text-xs mt-0.5">Mandi Harish Foundation®</p>
-          </div>
-          <div className="text-brand-300 text-xs text-center">
-            <p>© {new Date().getFullYear()} All rights reserved.</p>
-            <p className="mt-0.5">
-              For queries:{' '}
-              <a href="mailto:mhskill2024.com" className="underline hover:text-white">
-                mhskill2024@gmail.com
-              </a>
-            </p>
-          </div>
-        </div>
-      </div>
-    </footer>
-  )
-}
 
 // ── Main component ─────────────────────────────────────────────────────────────
 export default function MissedTestApplicationForm() {

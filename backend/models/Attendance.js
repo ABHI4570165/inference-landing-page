@@ -1,6 +1,10 @@
 const mongoose = require('mongoose');
 
 const attendanceSchema = new mongoose.Schema({
+  // Denormalised from the student for direct workspace-scoped queries
+  // without a populate/lookup on every read.
+  workspace: { type: mongoose.Schema.Types.ObjectId, ref: 'Workspace', required: true, index: true },
+
   // The student this attendance record belongs to
   student: {
     type: mongoose.Schema.Types.ObjectId,

@@ -119,6 +119,11 @@ app.use('/api/attendance-sessions', require('./routes/attendanceSessions'));
 app.use('/api/counselling', require('./routes/counselling'));
 app.use('/api/admin/counselling', require('./routes/counsellingAdmin'));
 app.use('/api/reception', require('./routes/reception'));
+app.use('/api/admin/dashboard', require('./routes/dashboard'));
+app.use('/api/applications', require('./routes/applications'));
+app.use('/api/workspaces', require('./routes/workspaces'));
+app.use('/api/forms', require('./routes/forms'));
+app.use('/api/public/forms', submitLimiter, require('./routes/publicForms'));
 
 // Health check
 app.get('/', (req, res) =>
@@ -139,6 +144,11 @@ mongoose.connect(process.env.MONGODB_URI)
     await require('./seedAdmin')();
     await require('./seedCounsellingQuestions')();
     await require('./backfillReceptionCheckins')();
+    await require('./backfillWorkspaces')();
+    await require('./backfillApplicationForms')();
+    // Any report still marked 'generating' belongs to a previous process that
+    // is no longer running — release it so it can be regenerated.
+    await require('./services/aiReport').recoverOrphanedReports();
 
     app.listen(PORT, () =>
       console.log(`✅  Server running on http://localhost:${PORT}`)

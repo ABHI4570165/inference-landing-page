@@ -2,7 +2,8 @@ import { useState, useEffect, useMemo, useCallback } from 'react'
 import API from '../utils/api'
 import AdminLayout from '../components/AdminLayout'
 import Spinner from '../components/Spinner'
-import { RECEPTION_PATH } from '../utils/routes'
+import { useWorkspace } from '../context/WorkspaceContext'
+import { RECEPTION_PATH, receptionUrlFor } from '../utils/routes'
 
 const FILTER_TABS = [
   { value: 'all',        label: 'All Students' },
@@ -31,14 +32,17 @@ function StatusBadge({ ok, yes, no }) {
 }
 
 export default function AdminReception() {
+  const { workspace } = useWorkspace()
   const [students, setStudents] = useState([])
   const [date, setDate] = useState(todayIST())
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState('all')
   const [search, setSearch] = useState('')
 
-  // QR + link for the reception tablet
-  const receptionUrl = `${window.location.origin}${RECEPTION_PATH}`
+  // QR + link for the reception tablet — this workspace's own unique link
+  // if it has a token yet, falling back to the original bare link otherwise.
+  const receptionPath = workspace?.receptionToken ? receptionUrlFor(workspace.receptionToken) : RECEPTION_PATH
+  const receptionUrl = `${window.location.origin}${receptionPath}`
   const [qrDataUrl, setQrDataUrl] = useState('')
   const [copied, setCopied] = useState(false)
 
@@ -114,26 +118,22 @@ export default function AdminReception() {
   }
 
   return (
-    <AdminLayout>
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
-        <div>
-          <h2 className="font-heading text-2xl font-bold text-gray-800">Reception Registrations</h2>
-          <p className="text-gray-500 text-sm">
-            {students.length} students · {registeredCount} registered · {completedCount} counselling completed
-          </p>
-        </div>
-        <div className="flex gap-2 items-center">
+    <AdminLayout
+      title="Reception"
+      subtitle={`${students.length} students · ${registeredCount} registered · ${completedCount} counselling completed`}
+      actions={
+        <>
           <input
-            type="text"
-            className="form-input w-64"
-            placeholder="Search by name or mobile number..."
+            type="search"
+            className="form-input w-full sm:w-64"
+            placeholder="Search by name or mobile number…"
             value={search}
             onChange={e => setSearch(e.target.value)}
           />
           <button onClick={() => fetchDay(date)} className="btn-secondary" title="Refresh">↻ Refresh</button>
-        </div>
-      </div>
-
+        </>
+      }
+    >
       {/* ── Day-wise navigation ── */}
       <div className="card mb-5 flex flex-wrap items-center gap-3">
         <button className="btn-secondary" onClick={() => goToDate(shiftDate(date, -1))} title="Previous day">← Prev Day</button>
@@ -193,7 +193,7 @@ export default function AdminReception() {
       ) : filtered.length === 0 ? (
         <div className="card text-center py-16 text-gray-500">No students found for this day / filter.</div>
       ) : (
-        <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
+        <div className="table-scroll scroll-slim rounded-xl border border-surface-200 bg-white shadow-card">
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-gray-50 border-b border-gray-200">

@@ -1,9 +1,13 @@
 const express = require('express')
+const mongoose = require('mongoose')
 const router = express.Router()
 const auth = require('../config/auth')
+const { checkReceptionEligibility } = require('../services/candidateWorkflow')
+const requireWorkspace = require('../middleware/workspace')
 const Student = require('../models/Student')
 const Attendance = require('../models/Attendance')
 const ReceptionCheckin = require('../models/ReceptionCheckin')
+const Workspace = require('../models/Workspace')
 const cloudinary = require('../config/cloudinary')
 const multer = require('multer')
 
@@ -21,42 +25,70 @@ function todayIST() {
 
 const escapeRegex = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
-// Match a student by mobile number the same way counselling does: compare the
-// last 10 digits, tolerating +91 / spaces in whatever format was stored.
-async function findStudentByPhone(rawPhone) {
-  const digits = String(rawPhone || '').replace(/\D/g, '').slice(-10)
-  if (digits.length !== 10) return null
-  const candidates = await Student.find({ phone: { $regex: escapeRegex(digits) + '\\s*$' } })
-  return candidates.find(s => (s.phone || '').replace(/\D/g, '').slice(-10) === digits) || null
+// Find the candidate from whatever identifier they typed at the entrance
+// tablet — a mobile number OR an email address.
+//
+// This used to accept a phone number only. That silently excluded every
+// candidate who registered through a Custom Form that did not collect a
+// phone-typed field: they could be marked Present but were then told "Student
+// record not found" at reception, with no way to identify themselves.
+// Scoped to whichever workspace the tablet's link belongs to — there is no
+// admin session here to read a workspace selection from.
+async function findCandidateByIdentifier(rawIdentifier, workspaceId) {
+  const raw = String(rawIdentifier || '').trim()
+  if (!raw) return null
+
+  const digits = raw.replace(/\D/g, '').slice(-10)
+  if (digits.length === 10 && !raw.includes('@')) {
+    // Stored numbers vary in formatting (+91, spaces) — compare last 10 digits
+    const candidates = await Student.find({ workspace: workspaceId, phone: { $regex: escapeRegex(digits) + '\\s*$' } })
+    const match = candidates.find(s => (s.phone || '').replace(/\D/g, '').slice(-10) === digits)
+    if (match) return match
+  }
+
+  if (raw.includes('@')) {
+    return Student.findOne({ workspace: workspaceId, email: raw.toLowerCase() })
+  }
+
+  return null
 }
 
-// Same eligibility rule as the counselling module: the student must have been
-// marked Present in an attendance session (attendance is per IST calendar day).
-function hasPresentAttendance(studentId) {
-  return Attendance.exists({ student: studentId, status: 'Present' })
+// Resolves which workspace a public reception request targets: an explicit
+// per-workspace `token` (new links, e.g. /reception/<token>) if the request
+// carries one and it matches an Active workspace, otherwise the one legacy
+// default-intake workspace that the original un-tokened /reception link
+// (already printed/circulated) has always pointed at.
+async function resolveReceptionWorkspace(token) {
+  if (token) {
+    const ws = await Workspace.findOne({ receptionToken: token, status: 'Active' }).select('_id').lean()
+    return ws ? ws._id : null
+  }
+  const intake = await Workspace.findOne({ isDefaultIntake: true }).select('_id').lean()
+  return intake ? intake._id : null
 }
 
-// ── POST /api/reception/verify — body: { name, phone } ─────────────────────
+// ── POST /api/reception/verify — body: { name, phone, token } ──────────────
 // Public (no auth) — used by the entrance tablet to verify the student exists
 // and attendance is marked Present before allowing the photo capture step.
+// The workflow rule itself lives in services/candidateWorkflow so /verify and
+// /register can never drift apart.
 router.post('/verify', async (req, res) => {
   try {
-    const { name, phone } = req.body || {}
-    if (!name || !phone) return res.status(400).json({ message: 'Missing name or phone' })
-
-    const student = await findStudentByPhone(phone)
-    if (!student) return res.status(404).json({ message: 'Student record not found.\n\nPlease contact the administrator.' })
-
-    if (!(await hasPresentAttendance(student._id))) {
-      return res.status(403).json({ message: 'Attendance not found.\n\nPlease contact the administrator.' })
+    // `phone` is the historical field name from the tablet form; it now
+    // carries either a mobile number or an email address.
+    const { name, token } = req.body || {}
+    const identifier = req.body?.identifier || req.body?.phone
+    if (!name || !identifier) {
+      return res.status(400).json({ message: 'Please enter your name and your mobile number or email' })
     }
 
-    if (student.counsellingStatus === 'COMPLETED') {
-      return res.status(409).json({ message: 'Counselling already completed.' })
-    }
-    if (student.registrationStatus === 'REGISTERED') {
-      return res.status(409).json({ message: 'You have already completed Reception Registration.\n\nPlease proceed to Counselling.' })
-    }
+    const workspaceId = await resolveReceptionWorkspace(token)
+    if (!workspaceId) return res.status(404).json({ message: 'This reception link is invalid or no longer active.' })
+
+    const student = await findCandidateByIdentifier(identifier, workspaceId)
+
+    const gate = await checkReceptionEligibility(student, workspaceId)
+    if (!gate.ok) return res.status(gate.status).json({ code: gate.code, message: gate.message })
 
     return res.json({ id: student._id, name: student.name, phone: student.phone })
   } catch (err) {
@@ -71,20 +103,26 @@ router.post('/verify', async (req, res) => {
 // and writes a permanent day-wise ReceptionCheckin record for today.
 router.post('/register', upload.single('photo'), async (req, res) => {
   try {
-    const { studentId } = req.body || {}
-    if (!studentId) return res.status(400).json({ message: 'Missing studentId' })
+    const { studentId, token } = req.body || {}
+    if (!studentId || !mongoose.isValidObjectId(studentId)) {
+      return res.status(400).json({ message: 'Missing studentId' })
+    }
     if (!req.file) return res.status(400).json({ message: 'Missing photo' })
 
-    const student = await Student.findById(studentId)
-    if (!student) return res.status(404).json({ message: 'Student record not found.\n\nPlease contact the administrator.' })
+    // This endpoint used to trust `studentId` alone: it looked the student up
+    // with findById() and never resolved a workspace, so a candidate belonging
+    // to one company's drive could be checked in through another company's
+    // reception link. The link's own token now decides the workspace, and the
+    // student must belong to it.
+    const workspaceId = await resolveReceptionWorkspace(token)
+    if (!workspaceId) return res.status(404).json({ message: 'This reception link is invalid or no longer active.' })
 
-    // Re-check eligibility — the tablet flow could be stale
-    if (!(await hasPresentAttendance(student._id))) {
-      return res.status(403).json({ message: 'Attendance not found.\n\nPlease contact the administrator.' })
-    }
-    if (student.registrationStatus === 'REGISTERED') {
-      return res.status(409).json({ message: 'You have already completed Reception Registration.\n\nPlease proceed to Counselling.' })
-    }
+    const student = await Student.findOne({ _id: studentId, workspace: workspaceId })
+
+    // Re-checked here and not just in /verify — the tablet's state could be
+    // stale, and this endpoint is reachable directly.
+    const gate = await checkReceptionEligibility(student, workspaceId)
+    if (!gate.ok) return res.status(gate.status).json({ code: gate.code, message: gate.message })
 
     // Upload to Cloudinary (folder: student-registration) via base64 data URI —
     // buffers are small (≤300KB compressed client-side, 1MB hard cap above)
@@ -109,6 +147,7 @@ router.post('/register', upload.single('photo'), async (req, res) => {
       { student: student._id, date },
       {
         student: student._id,
+        workspace: student.workspace,
         name: student.name,
         phone: student.phone,
         college: student.college,
@@ -131,21 +170,21 @@ router.post('/register', upload.single('photo'), async (req, res) => {
 // Everyone relevant to that day's drive: students marked in that day's
 // attendance, plus anyone who completed reception registration that day.
 // Defaults to today (IST) when no date is given.
-router.get('/day', auth, async (req, res) => {
+router.get('/day', auth, requireWorkspace, async (req, res) => {
   try {
     const requested = req.query.date
     const date = DATE_RX.test(requested || '') ? requested : todayIST()
 
     const [attendance, checkins] = await Promise.all([
-      Attendance.find({ date }).lean(),
-      ReceptionCheckin.find({ date }).lean()
+      Attendance.find({ date, workspace: req.workspaceId }).lean(),
+      ReceptionCheckin.find({ date, workspace: req.workspaceId }).lean()
     ])
 
     const attendanceByStudent = new Map(attendance.map(a => [String(a.student), a.status]))
     const checkinByStudent = new Map(checkins.map(c => [String(c.student), c]))
 
     const ids = [...new Set([...attendanceByStudent.keys(), ...checkinByStudent.keys()])]
-    const studentDocs = await Student.find({ _id: { $in: ids } }).select('name phone college').lean()
+    const studentDocs = await Student.find({ _id: { $in: ids }, workspace: req.workspaceId }).select('name phone college').lean()
     const studentById = new Map(studentDocs.map(s => [String(s._id), s]))
 
     const students = ids.map(id => {
@@ -181,16 +220,16 @@ router.get('/day', auth, async (req, res) => {
 // photo, deletes that day's ReceptionCheckin record, and resets the student
 // back to NOT_REGISTERED so they can check in again from scratch (e.g. after
 // a mistaken/test registration).
-router.delete('/registration/:studentId', auth, async (req, res) => {
+router.delete('/registration/:studentId', auth, requireWorkspace, async (req, res) => {
   try {
     const { studentId } = req.params
     const requestedDate = req.query.date
-    const student = await Student.findById(studentId)
+    const student = await Student.findOne({ _id: studentId, workspace: req.workspaceId })
     if (!student) return res.status(404).json({ message: 'Not found' })
 
     const checkin = DATE_RX.test(requestedDate || '')
-      ? await ReceptionCheckin.findOne({ student: studentId, date: requestedDate })
-      : await ReceptionCheckin.findOne({ student: studentId }).sort({ date: -1 })
+      ? await ReceptionCheckin.findOne({ student: studentId, date: requestedDate, workspace: req.workspaceId })
+      : await ReceptionCheckin.findOne({ student: studentId, workspace: req.workspaceId }).sort({ date: -1 })
 
     const publicId = checkin?.photoPublicId || student.registrationPhotoPublicId
     if (!checkin && student.registrationStatus !== 'REGISTERED' && !publicId) {

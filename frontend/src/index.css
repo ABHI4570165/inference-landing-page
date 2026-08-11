@@ -5,30 +5,251 @@
 @layer base {
   body {
     font-family: 'DM Sans', sans-serif;
-    @apply bg-gray-50 text-gray-800;
+    @apply bg-surface-100 text-ink-800 antialiased;
+  }
+
+  /* Slim, unobtrusive scrollbars inside panels and long lists */
+  .scroll-slim {
+    scrollbar-width: thin;
+    scrollbar-color: theme('colors.surface.300') transparent;
+  }
+  .scroll-slim::-webkit-scrollbar { width: 8px; height: 8px; }
+  .scroll-slim::-webkit-scrollbar-track { background: transparent; }
+  .scroll-slim::-webkit-scrollbar-thumb {
+    @apply bg-surface-300 rounded-full border-2 border-solid border-transparent bg-clip-padding;
+  }
+  .scroll-slim::-webkit-scrollbar-thumb:hover { @apply bg-ink-400/50; }
+
+  /* Checkboxes/radios pick up the brand colour instead of the OS blue */
+  input[type='checkbox'], input[type='radio'] {
+    @apply accent-brand-600 w-4 h-4 cursor-pointer;
   }
 }
 
 @layer components {
+  /* ── Application shell ─────────────────────────────────────────
+     The sidebar + content architecture, written as explicit CSS
+     rather than composed from utility classes. A utility-composed
+     shell fails *partially* — if one class (a width, a display) is
+     missing, the sidebar loses its track and the content renders
+     underneath it. These rules are a single unit: they either all
+     apply or the stylesheet is absent entirely.
+
+     Desktop uses a two-column grid. The content track is
+     `minmax(0, 1fr)` — the 0 minimum is what stops a wide table from
+     expanding its own track and pushing itself under the sidebar;
+     it must scroll inside .table-scroll instead. */
+  :root {
+    --sidebar-w: 264px;
+  }
+
+  .app-shell {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);   /* mobile: one column */
+    min-height: 100vh;
+    width: 100%;
+    @apply bg-surface-100;
+  }
+
+  @media (min-width: 1024px) {
+    .app-shell {
+      grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
+    }
+  }
+
+  /* Grid item: owns its column, never overlaps the content track.
+     Hidden below the lg breakpoint, where the drawer takes over. */
+  .app-sidebar {
+    display: none;
+    min-width: 0;
+  }
+  @media (min-width: 1024px) {
+    .app-sidebar { display: block; }
+  }
+
+  /* The visible panel. Sticky inside the full-height grid item, so it
+     stays put while the content column scrolls — without ever being
+     removed from the layout flow. */
+  .app-sidebar-inner {
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    width: 100%;
+    overflow: hidden;
+    @apply bg-brand-900 text-white;
+  }
+
+  /* Content track. min-width:0 lets it shrink below its contents'
+     intrinsic width instead of overflowing the page. */
+  .app-main {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    width: 100%;
+  }
+
+  /* Consistent page gutter: 20px → 32px → 40px as width allows. */
+  .app-content {
+    width: 100%;
+    max-width: 1400px;
+    margin-inline: auto;
+    min-width: 0;
+    padding: 24px 20px;
+  }
+  @media (min-width: 640px)  { .app-content { padding: 28px 32px; } }
+  @media (min-width: 1280px) { .app-content { padding: 32px 40px; } }
+
+  /* Any wide block (tables especially) scrolls inside itself so the
+     page never scrolls horizontally. */
+  .table-scroll {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    overflow-x: auto;
+  }
+
+  /* ── Forms ─────────────────────────────────────────────────── */
   .form-label {
-    @apply block text-sm font-medium text-gray-700 mb-1;
+    @apply block text-[13px] font-semibold text-ink-700 mb-1.5;
+  }
+  .form-hint {
+    @apply text-xs text-ink-400 mt-1.5;
   }
   .form-input {
-    @apply w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent transition bg-white;
+    @apply w-full px-3.5 py-2.5 bg-white border border-surface-300 rounded-lg text-sm text-ink-800
+           placeholder:text-ink-400 shadow-[0_1px_2px_rgb(16_24_40/0.03)]
+           focus:outline-none focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10
+           transition duration-150;
   }
   .form-input:disabled {
-    @apply bg-gray-100 cursor-not-allowed;
+    @apply bg-surface-100 text-ink-400 cursor-not-allowed;
   }
+
+  /* ── Buttons ───────────────────────────────────────────────── */
   .btn-primary {
-    @apply bg-brand-600 hover:bg-brand-700 text-white font-semibold px-6 py-3 rounded-lg transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2;
+    @apply inline-flex items-center justify-center gap-2 bg-brand-600 hover:bg-brand-700 active:bg-brand-800
+           text-white font-semibold text-sm px-5 py-2.5 rounded-lg
+           shadow-[0_1px_2px_rgb(16_24_40/0.10)] hover:shadow-lift
+           transition-all duration-200 disabled:opacity-55 disabled:cursor-not-allowed disabled:shadow-none
+           focus:outline-none focus-visible:ring-4 focus-visible:ring-brand-500/25;
   }
   .btn-secondary {
-    @apply bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 font-medium px-4 py-2 rounded-lg transition text-sm;
+    @apply inline-flex items-center justify-center gap-2 bg-white hover:bg-surface-100 active:bg-surface-200
+           border border-surface-300 text-ink-700 font-medium text-sm px-4 py-2.5 rounded-lg
+           shadow-[0_1px_2px_rgb(16_24_40/0.04)] transition-all duration-200
+           disabled:opacity-55 disabled:cursor-not-allowed
+           focus:outline-none focus-visible:ring-4 focus-visible:ring-brand-500/15;
+  }
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 text-ink-500 hover:text-ink-800 hover:bg-surface-200
+           font-medium text-sm px-3 py-2 rounded-lg transition-all duration-200;
   }
   .btn-danger {
-    @apply bg-red-600 hover:bg-red-700 text-white font-medium px-4 py-2 rounded-lg transition text-sm;
+    @apply inline-flex items-center justify-center gap-2 bg-red-600 hover:bg-red-700 text-white
+           font-medium text-sm px-4 py-2.5 rounded-lg transition-all duration-200
+           disabled:opacity-55 disabled:cursor-not-allowed;
   }
+  .icon-btn {
+    @apply w-8 h-8 inline-flex items-center justify-center rounded-lg text-ink-400
+           hover:bg-surface-200 hover:text-ink-700 transition-colors duration-150;
+  }
+
+  /* ── Surfaces ──────────────────────────────────────────────── */
   .card {
-    @apply bg-white rounded-xl shadow-sm border border-gray-100 p-6;
+    @apply bg-white rounded-xl border border-surface-200 shadow-card p-6;
+  }
+  .card-hover {
+    @apply transition-all duration-200 hover:shadow-lift hover:border-surface-300 hover:-translate-y-0.5;
+  }
+  .panel {
+    @apply bg-white rounded-xl border border-surface-200 shadow-card overflow-hidden;
+  }
+  .panel-head {
+    @apply px-5 py-4 border-b border-surface-200 flex items-center justify-between gap-3 flex-wrap;
+  }
+
+  /* ── Badges ────────────────────────────────────────────────── */
+  .badge {
+    @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold
+           leading-none whitespace-nowrap;
+  }
+  .badge-green   { @apply bg-brand-50 text-brand-700 ring-1 ring-inset ring-brand-200; }
+  .badge-neutral { @apply bg-surface-100 text-ink-500 ring-1 ring-inset ring-surface-300; }
+  .badge-amber   { @apply bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-200; }
+  .badge-red     { @apply bg-red-50 text-red-700 ring-1 ring-inset ring-red-200; }
+  .badge-blue    { @apply bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-200; }
+  .badge-indigo  { @apply bg-indigo-50 text-indigo-700 ring-1 ring-inset ring-indigo-200; }
+  .badge-purple  { @apply bg-purple-50 text-purple-700 ring-1 ring-inset ring-purple-200; }
+
+  /* ── Segmented category tabs (dynamic form filters) ────────── */
+  .chip {
+    @apply inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-[13px] font-medium
+           border transition-all duration-200 whitespace-nowrap;
+  }
+  .chip-idle {
+    @apply bg-white text-ink-600 border-surface-300 hover:border-brand-300 hover:text-brand-700 hover:bg-brand-50/50;
+  }
+  .chip-active {
+    @apply bg-brand-600 text-white border-brand-600 shadow-[0_1px_2px_rgb(16_24_40/0.10)];
+  }
+  .chip-count {
+    @apply text-[11px] font-semibold px-1.5 py-0.5 rounded-md bg-black/[0.06] leading-none;
+  }
+  .chip-active .chip-count { @apply bg-white/20; }
+
+  /* ── Data table ────────────────────────────────────────────── */
+  .data-table { @apply w-full text-sm border-collapse; }
+  .data-table thead th {
+    @apply text-left px-4 py-3 bg-surface-50 border-b border-surface-200
+           font-semibold text-ink-500 text-[11px] uppercase tracking-wider whitespace-nowrap;
+  }
+  .data-table tbody td {
+    @apply px-4 py-3.5 border-b border-surface-200/70 text-ink-700 align-middle;
+  }
+  .data-table tbody tr { @apply transition-colors duration-150; }
+  .data-table tbody tr:hover { @apply bg-brand-50/40; }
+  .data-table tbody tr:last-child td { @apply border-b-0; }
+
+  /* ── Skeleton loading ──────────────────────────────────────── */
+  .skeleton {
+    @apply relative overflow-hidden bg-surface-200 rounded;
+  }
+  .skeleton::after {
+    content: '';
+    @apply absolute inset-0 -translate-x-full;
+    background-image: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.6), transparent);
+    animation: shimmer 1.6s infinite;
+  }
+
+  /* Section heading used above grouped content */
+  .section-title {
+    @apply font-heading text-[17px] font-bold text-ink-900;
+  }
+  .section-sub {
+    @apply text-[13px] text-ink-500 mt-0.5;
+  }
+}
+
+@layer utilities {
+  /* Staggered entrance for lists/grids — subtle, runs once on mount */
+  .stagger > * { animation: fadeUp .34s cubic-bezier(.22,.9,.32,1) both; }
+  .stagger > *:nth-child(1) { animation-delay: .02s }
+  .stagger > *:nth-child(2) { animation-delay: .06s }
+  .stagger > *:nth-child(3) { animation-delay: .10s }
+  .stagger > *:nth-child(4) { animation-delay: .14s }
+  .stagger > *:nth-child(5) { animation-delay: .18s }
+  .stagger > *:nth-child(6) { animation-delay: .22s }
+  .stagger > *:nth-child(n+7) { animation-delay: .26s }
+
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+  .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+}
+
+/* Respect the user's reduced-motion preference everywhere */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
   }
 }

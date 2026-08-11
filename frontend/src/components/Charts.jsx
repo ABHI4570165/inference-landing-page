@@ -3,11 +3,11 @@ import { useState } from 'react'
 // Lightweight SVG/CSS charts for the admin dashboards — no chart library.
 // Categorical palette is brand-green-led and CVD-validated (adjacent ΔE > 12);
 // values are always direct-labeled so color never carries meaning alone.
-export const CAT_COLORS = ['#2d7d2d', '#2a78d6', '#eda100', '#4a3aa7', '#eb6834']
+export const CAT_COLORS = ['#1f7a4d', '#2a78d6', '#eda100', '#4a3aa7', '#eb6834']
 const FOLD_COLOR = '#898781' // "Other" fold when there are more slices than slots
 
 // ── Horizontal bar list (magnitude by category — single hue) ───────────────
-export function HBarList({ data, valueLabel = '', color = '#2d7d2d', suffix = '' }) {
+export function HBarList({ data, valueLabel = '', color = '#1f7a4d', suffix = '' }) {
   const max = Math.max(1, ...data.map(d => d.value))
   if (!data.length) return <EmptyChart />
   return (
@@ -88,7 +88,7 @@ export function Donut({ data, size = 150 }) {
 }
 
 // ── Trend line (change over time) ───────────────────────────────────────────
-export function TrendLine({ data, color = '#2d7d2d', height = 160, suffix = '' }) {
+export function TrendLine({ data, color = '#1f7a4d', height = 160, suffix = '' }) {
   const [hover, setHover] = useState(null)
   if (data.length < 2) {
     return data.length === 1
@@ -101,7 +101,9 @@ export function TrendLine({ data, color = '#2d7d2d', height = 160, suffix = '' }
   const x = i => PAD.l + (i / (data.length - 1)) * (W - PAD.l - PAD.r)
   const y = v => H - PAD.b - (v / max) * (H - PAD.t - PAD.b)
   const path = data.map((d, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(d.value).toFixed(1)}`).join(' ')
-  const gridVals = [0, Math.round(max / 2), max]
+  // When max is small (e.g. an empty workspace, max=1) rounding can collide
+  // — dedupe so two grid lines never share the same React key/value.
+  const gridVals = [...new Set([0, Math.round(max / 2), max])]
   // show at most ~6 x labels
   const step = Math.ceil(data.length / 6)
 
@@ -151,7 +153,7 @@ export function Meter({ label, value, invert = false }) {
   // for riskLevel (invert) high is bad
   const good = invert ? v <= 40 : v >= 65
   const bad = invert ? v >= 70 : v < 40
-  const color = good ? '#2d7d2d' : bad ? '#d03b3b' : '#b45309'
+  const color = good ? '#1f7a4d' : bad ? '#d03b3b' : '#b45309'
   return (
     <div>
       <div className="flex justify-between items-baseline mb-1">
@@ -165,12 +167,12 @@ export function Meter({ label, value, invert = false }) {
   )
 }
 
-export function StatTile({ label, value, sub, accent = 'text-gray-800' }) {
+export function StatTile({ label, value, sub, accent = 'text-ink-900' }) {
   return (
-    <div className="card !p-4">
-      <p className={`text-2xl font-bold leading-tight ${accent}`}>{value}</p>
-      <p className="text-xs text-gray-500 mt-1">{label}</p>
-      {sub && <p className="text-[11px] text-gray-400 mt-0.5">{sub}</p>}
+    <div className="card !p-4 card-hover">
+      <p className={`font-heading text-[26px] leading-none font-bold tabular-nums ${accent}`}>{value}</p>
+      <p className="text-[12.5px] text-ink-500 mt-2">{label}</p>
+      {sub && <p className="text-[11.5px] text-ink-400 mt-0.5">{sub}</p>}
     </div>
   )
 }

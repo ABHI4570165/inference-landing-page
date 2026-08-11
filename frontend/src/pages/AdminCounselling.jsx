@@ -3,18 +3,22 @@ import API from '../utils/api'
 import AdminLayout from '../components/AdminLayout'
 import CounsellingNav from '../components/CounsellingNav'
 import Spinner from '../components/Spinner'
+import { useWorkspace } from '../context/WorkspaceContext'
 import { StatTile, HBarList, Donut, TrendLine, Meter } from '../components/Charts'
-import { COUNSELLING_FORM_PATH } from '../utils/routes'
+import { COUNSELLING_FORM_PATH, counsellingUrlFor } from '../utils/routes'
 
 export default function AdminCounselling() {
+  const { workspace } = useWorkspace()
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [colleges, setColleges] = useState([])
   const [filters, setFilters] = useState({ college: '', from: '', to: '' })
 
-  // QR code
-  const formUrl = `${window.location.origin}${COUNSELLING_FORM_PATH}`
+  // QR code — this workspace's own unique link if it has a token yet,
+  // falling back to the original bare link otherwise.
+  const counsellingPath = workspace?.counsellingToken ? counsellingUrlFor(workspace.counsellingToken) : COUNSELLING_FORM_PATH
+  const formUrl = `${window.location.origin}${counsellingPath}`
   const [qrDataUrl, setQrDataUrl] = useState('')
   const [copied, setCopied] = useState(false)
 
@@ -48,11 +52,10 @@ export default function AdminCounselling() {
   }
 
   return (
-    <AdminLayout>
-      <div className="mb-4">
-        <h2 className="font-heading text-2xl font-bold text-gray-800">Counselling</h2>
-        <p className="text-gray-500 text-sm">Assessment responses, AI insights and the student QR code.</p>
-      </div>
+    <AdminLayout
+      title="Counselling"
+      subtitle="Assessment responses, AI insights and the student QR code."
+    >
       <CounsellingNav />
 
       {/* ── QR + link ── */}

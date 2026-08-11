@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
+import { useParams } from 'react-router-dom'
 import API from '../utils/api'
+import { PublicFooter } from '../components/PublicShell'
 
 const BRAND = '#0F4C81'
 
@@ -29,6 +31,11 @@ function compressImage(source, maxWidth = 480, quality = 0.6) {
 const RESET_SECONDS = 5
 
 export default function Reception() {
+  // Present only on the per-workspace link (/reception/:token) — absent on
+  // the original bare /reception link, which resolves to the default-intake
+  // workspace on the backend instead.
+  const { token } = useParams()
+
   // welcome → verify → capture → preview → success
   const [step, setStep] = useState('welcome')
   const [name, setName] = useState('')
@@ -93,7 +100,7 @@ export default function Reception() {
     setError('')
     setBusy(true)
     try {
-      const res = await API.post('/api/reception/verify', { name: name.trim(), phone: phone.trim() })
+      const res = await API.post('/api/reception/verify', { name: name.trim(), phone: phone.trim(), token })
       setStudentId(res.data.id)
       setStudentName(res.data.name)
       await startCamera()
@@ -151,6 +158,9 @@ export default function Reception() {
     try {
       const form = new FormData()
       form.append('studentId', studentId)
+      // The link's token identifies which workspace this tablet belongs to;
+      // the backend resolves it and refuses a student from any other one.
+      if (token) form.append('token', token)
       form.append('photo', photoBlob, 'photo.jpg')
       await API.post('/api/reception/register', form, { headers: { 'Content-Type': 'multipart/form-data' } })
       setStep('success')
@@ -205,14 +215,18 @@ export default function Reception() {
                   />
                 </div>
                 <div>
-                  <label className="block text-base font-medium text-gray-700 mb-2">Mobile Number</label>
+                  <label className="block text-base font-medium text-gray-700 mb-2">Mobile Number or Email</label>
                   <input
                     value={phone}
-                    onChange={e => setPhone(e.target.value.replace(/[^\d+\s]/g, ''))}
+                    // Accepts either identifier: candidates who registered
+                    // through a form that did not collect a phone number
+                    // identify themselves by email instead. Stripping to
+                    // digits here would make that impossible to type.
+                    onChange={e => setPhone(e.target.value)}
                     className="w-full px-4 py-4 text-lg border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:border-transparent"
                     style={{ '--tw-ring-color': BRAND }}
-                    placeholder="Enter your mobile number"
-                    inputMode="numeric"
+                    placeholder="Enter your mobile number or email"
+                    inputMode="text"
                     autoComplete="off"
                     required
                   />
@@ -319,6 +333,8 @@ export default function Reception() {
           )}
         </div>
       </main>
+
+      <PublicFooter />
     </div>
   )
 }

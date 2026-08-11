@@ -1,39 +1,40 @@
+import { ORG } from './PublicShell'
+
+// Fixed header for the original public application forms (which offset their
+// content with pt-28). Branding is M H Foundation ONLY — the recruitment
+// company's logo that used to sit on the right has been removed, so no public
+// page carries a client company's mark.
 export default function Header() {
   return (
-    <header className="fixed top-0 left-0 right-0 z-50 bg-white border-b border-gray-200 shadow-sm">
+    <header className="fixed top-0 left-0 right-0 z-50 bg-white border-b border-surface-200 shadow-sm">
       <div className="max-w-4xl mx-auto px-4 py-3">
 
-        {/* Desktop layout: logo left | title centre | logo right */}
+        {/* Desktop: logo + org name on the left, portal title on the right */}
         <div className="hidden sm:flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3 flex-shrink-0">
-            <img src="/mandi-logo.png" alt="Mandi Hariyanna Academy" className="w-12 h-12 object-contain rounded-full" />
-            <div>
-              <h1 className="font-heading text-base font-bold text-brand-800 leading-tight">MANDI HARISH FOUNDATION®</h1>
-              {/* <p className="text-xs text-gray-500">MANDI HARISH FOUNDATION®</p> */}
+          <div className="flex items-center gap-3 min-w-0">
+            <img src={ORG.logo} alt={ORG.name} className="w-12 h-12 object-contain rounded-full flex-shrink-0" />
+            <div className="min-w-0">
+              <h1 className="font-heading text-[17px] font-bold text-brand-800 leading-tight truncate">
+                {ORG.name}
+              </h1>
+              <p className="text-[12px] text-ink-400 leading-tight truncate">{ORG.academy}</p>
             </div>
           </div>
-          <div className="text-center flex-1">
-            <p className="text-sm font-semibold text-gray-600 tracking-wide uppercase">Student Hiring Portal</p>
-          </div>
-          <div className="flex-shrink-0">
-            <img src="/inference-logo.png" alt="Inference Labs" className="h-10 w-auto object-contain" />
-          </div>
+          <p className="text-[12px] font-semibold text-ink-500 tracking-wider uppercase flex-shrink-0">
+            {ORG.portal}
+          </p>
         </div>
 
-        {/* Mobile layout: stacked vertically */}
-        <div className="flex flex-col items-center gap-2 sm:hidden">
-          {/* Row 1: Mandi logo + name */}
-          <div className="flex items-center gap-3">
-            <img src="/mandi-logo.png" alt="Mandi Hariyanna Academy" className="w-10 h-10 object-contain rounded-full" />
-            <div>
-              <h1 className="font-heading text-sm font-bold text-brand-800 leading-tight">MANDI HARISH FOUNDATION®</h1>
-              {/* <p className="text-xs text-gray-500">MANDI HARISH FOUNDATION®</p> */}
+        {/* Mobile: logo + name on one row, portal title beneath */}
+        <div className="flex flex-col items-center gap-1.5 sm:hidden">
+          <div className="flex items-center gap-2.5">
+            <img src={ORG.logo} alt={ORG.name} className="w-10 h-10 object-contain rounded-full flex-shrink-0" />
+            <div className="min-w-0">
+              <h1 className="font-heading text-[15px] font-bold text-brand-800 leading-tight">{ORG.name}</h1>
+              <p className="text-[11px] text-ink-400 leading-tight">{ORG.academy}</p>
             </div>
           </div>
-          {/* Row 2: Portal title */}
-          <p className="text-xs font-semibold text-gray-600 tracking-wide uppercase">Student Hiring Portal</p>
-          {/* Row 3: Inference Labs logo */}
-          <img src="/inference-logo.png" alt="Inference Labs" className="h-8 w-auto object-contain" />
+          <p className="text-[10.5px] font-semibold text-ink-500 tracking-wider uppercase">{ORG.portal}</p>
         </div>
 
       </div>

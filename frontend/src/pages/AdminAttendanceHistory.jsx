@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import API from '../utils/api'
 import AdminLayout from '../components/AdminLayout'
 import Spinner from '../components/Spinner'
+import { useWorkspace } from '../context/WorkspaceContext'
 import { StatTile, HBarList, TrendLine } from '../components/Charts'
 
 // Attendance History — every marking session is stored permanently, can be
@@ -10,7 +11,10 @@ import { StatTile, HBarList, TrendLine } from '../components/Charts'
 export default function AdminAttendanceHistory() {
   const [selected, setSelected] = useState(null) // session id or null (list view)
   return (
-    <AdminLayout>
+    <AdminLayout
+      title="Attendance History"
+      subtitle="Every attendance session is stored permanently — browse recent sessions, review details, and edit them whenever needed."
+    >
       {selected
         ? <SessionDetail id={selected} onBack={() => setSelected(null)} />
         : <HistoryList onOpen={setSelected} />}
@@ -20,6 +24,7 @@ export default function AdminAttendanceHistory() {
 
 // ═══════════════════════ LIST + ANALYTICS ══════════════════════════════════
 function HistoryList({ onOpen }) {
+  const { workspace } = useWorkspace()
   const [rows, setRows] = useState([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
@@ -30,8 +35,8 @@ function HistoryList({ onOpen }) {
   const [filters, setFilters] = useState({ college: '', month: '', from: '', to: '', batch: '', year: '', admin: '', search: '', sort: 'latest' })
 
   useEffect(() => {
-    API.get('/api/attendance/colleges').then(r => setColleges(r.data)).catch(() => {})
-  }, [])
+    API.get('/api/attendance/colleges').then(r => setColleges(r.data)).catch(() => setColleges([]))
+  }, [workspace?._id])
 
   const query = useMemo(() => {
     const params = new URLSearchParams()
@@ -104,11 +109,6 @@ function HistoryList({ onOpen }) {
 
   return (
     <>
-      <div className="mb-5">
-        <h2 className="font-heading text-2xl font-bold text-gray-800">Attendance History</h2>
-        <p className="text-gray-500 text-sm">Every attendance session is stored permanently — browse recent sessions, review details, and edit them whenever needed.</p>
-      </div>
-
       <div className="card mb-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-6 gap-3">
           <div>
@@ -458,7 +458,7 @@ function SessionDetail({ id, onBack }) {
       </div>
 
       {/* roster */}
-      <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm mb-8">
+      <div className="table-scroll scroll-slim rounded-xl border border-surface-200 bg-white shadow-card mb-8">
         <table className="w-full text-sm">
           <thead>
             <tr className="bg-gray-50 border-b border-gray-200">

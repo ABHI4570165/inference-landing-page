@@ -1,29 +1,7 @@
 import { Navigate, useLocation } from 'react-router-dom'
 import Header from './Header'
+import { PublicFooter as FooterInline } from './PublicShell'
 
-function FooterInline() {
-  return (
-    <footer className="bg-brand-800 text-white">
-      <div className="max-w-4xl mx-auto px-4 py-4">
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-2 text-sm">
-          <div className="text-center sm:text-left">
-            <p className="font-heading font-bold text-sm">Mandi Hariyanna Academy</p>
-            <p className="text-brand-300 text-xs mt-0.5">Empowering students since 2010</p>
-          </div>
-          <div className="text-brand-300 text-xs text-center">
-            <p>© {new Date().getFullYear()} All rights reserved.</p>
-            <p className="mt-0.5">
-              For queries:{' '}
-              <a href="mailto:mhskill2024@gmail.com" className="underline hover:text-white">
-                mhskill2024@gmail.com
-              </a>
-            </p>
-          </div>
-        </div>
-      </div>
-    </footer>
-  )
-}
 
 // Shared thank-you layout. Each application source gets its own page (and its
 // own WhatsApp group link) wrapping this component. Direct URL access without
