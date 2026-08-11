@@ -46,11 +46,13 @@ async function statsByWorkspace() {
   return { appsByWs, counsellingByWs, formsByWs, receptionByWs };
 }
 
-// ── GET /api/workspaces — list this admin's workspaces with real stats ─────
+// ── GET /api/workspaces — every workspace in the organisation ─────────────
+// Workspaces are shared by all admins; createdBy is kept only as an audit of
+// who set each one up.
 router.get('/', auth, async (req, res) => {
   try {
     const [workspaces, { appsByWs, counsellingByWs, formsByWs, receptionByWs }] = await Promise.all([
-      Workspace.find({ createdBy: req.admin.id }).sort({ createdAt: -1 }).lean(),
+      Workspace.find({}).sort({ createdAt: -1 }).lean(),
       statsByWorkspace()
     ]);
 
@@ -120,7 +122,7 @@ router.post('/', auth, async (req, res) => {
 // ── GET /api/workspaces/:id ──────────────────────────────────────────────────
 router.get('/:id', auth, async (req, res) => {
   try {
-    const workspace = await Workspace.findOne({ _id: req.params.id, createdBy: req.admin.id }).lean();
+    const workspace = await Workspace.findById(req.params.id).lean();
     if (!workspace) return res.status(404).json({ message: 'Workspace not found' });
     res.json(workspace);
   } catch (err) {
@@ -143,7 +145,7 @@ router.put('/:id', auth, async (req, res) => {
     }
 
     const workspace = await Workspace.findOneAndUpdate(
-      { _id: req.params.id, createdBy: req.admin.id },
+      { _id: req.params.id },
       update,
       { new: true, runValidators: true }
     );
@@ -161,7 +163,7 @@ router.patch('/:id/status', auth, async (req, res) => {
       return res.status(400).json({ message: 'Status must be Active or Archived' });
     }
     const workspace = await Workspace.findOneAndUpdate(
-      { _id: req.params.id, createdBy: req.admin.id },
+      { _id: req.params.id },
       { status: req.body.status },
       { new: true }
     );

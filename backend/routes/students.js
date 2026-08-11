@@ -7,6 +7,11 @@ const auth     = require('../config/auth');
 const requireWorkspace = require('../middleware/workspace');
 const Student  = require('../models/Student');
 const Workspace = require('../models/Workspace');
+const FormSubmission = require('../models/FormSubmission');
+const Attendance = require('../models/Attendance');
+const ReceptionCheckin = require('../models/ReceptionCheckin');
+const CounsellingResponse = require('../models/CounsellingResponse');
+const CounsellingReport = require('../models/CounsellingReport');
 const cloudinary = require('../config/cloudinary');
 const { ensureLegacyForm } = require('../services/applicationForms');
 
@@ -384,18 +389,61 @@ router.put('/:id', auth, requireWorkspace, async (req, res) => {
 });
 
 // ── DELETE /api/students/:id ──────────────────────────────────────────────────
+// Removes the candidate AND everything that references them.
+//
+// This used to delete the Student row only, which left dangling references
+// behind: a form submission whose candidate no longer exists is hidden from
+// the Applications dashboard (it is treated as already represented by that
+// candidate's row), so the application silently disappeared instead of being
+// deleted — and orphaned attendance / reception rows kept inflating the
+// workspace counters. One candidate is one application, so deleting it
+// removes the whole chain, workspace-scoped throughout.
 router.delete('/:id', auth, requireWorkspace, async (req, res) => {
   try {
     const student = await Student.findOne({ _id: req.params.id, workspace: req.workspaceId });
     if (!student) return res.status(404).json({ message: 'Not found' });
 
-    // Delete resume from Cloudinary
+    const scope = { student: student._id, workspace: req.workspaceId };
+
+    // Stored files first — the DB rows are what let us find them
     if (student.cloudinary_public_id) {
       await cloudinary.uploader.destroy(student.cloudinary_public_id, { resource_type: 'raw' }).catch(() => {});
     }
+    const checkins = await ReceptionCheckin.find(scope).select('photoPublicId').lean();
+    for (const c of checkins) {
+      if (c.photoPublicId) await cloudinary.uploader.destroy(c.photoPublicId).catch(() => {});
+    }
+
+    const responses = await CounsellingResponse.find(scope).select('_id').lean();
+    const [submissions, attendance, reception, counselling, reports] = await Promise.all([
+      FormSubmission.deleteMany(scope),
+      Attendance.deleteMany(scope),
+      ReceptionCheckin.deleteMany(scope),
+      CounsellingResponse.deleteMany(scope),
+      CounsellingReport.deleteMany({
+        workspace: req.workspaceId,
+        $or: [{ student: student._id }, { response: { $in: responses.map(r => r._id) } }]
+      })
+    ]);
 
     await student.deleteOne();
-    res.json({ message: 'Deleted successfully' });
+
+    console.log(
+      `[DELETE /api/students/${student._id}] removed candidate "${student.name}" ` +
+      `+ ${submissions.deletedCount} submission(s), ${attendance.deletedCount} attendance, ` +
+      `${reception.deletedCount} reception, ${counselling.deletedCount} counselling, ${reports.deletedCount} report(s)`
+    );
+
+    res.json({
+      message: 'Deleted successfully',
+      removed: {
+        formSubmissions: submissions.deletedCount,
+        attendance: attendance.deletedCount,
+        receptionCheckins: reception.deletedCount,
+        counsellingResponses: counselling.deletedCount,
+        reports: reports.deletedCount
+      }
+    });
   } catch (err) {
     console.error('[DELETE /api/students]', err);
     res.status(500).json({ message: 'Server error' });
