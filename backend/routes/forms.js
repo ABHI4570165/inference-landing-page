@@ -126,6 +126,52 @@ router.post('/', auth, requireWorkspace, async (req, res) => {
   }
 });
 
+// ── POST /api/forms/:id/duplicate — copy an existing form's structure ─────
+// Saves rebuilding a long form by hand. The copy is a genuinely new form: its
+// own public link, its own responses, and its own field ids (responses are
+// keyed by field id, so sharing them between two forms would tangle the two
+// forms' answers together). Everything that defines the STRUCTURE — labels,
+// types, order, required flags, options and the per-field college selection —
+// is carried over.
+router.post('/:id/duplicate', auth, requireWorkspace, async (req, res) => {
+  try {
+    const source = await Form.findOne({ _id: req.params.id, workspace: req.workspaceId }).lean();
+    if (!source) return res.status(404).json({ message: 'Form not found' });
+
+    if (source.origin === 'legacy') {
+      return res.status(400).json({
+        message: 'Built-in intake forms have no editable fields, so there is nothing to duplicate. Create a new form instead.'
+      });
+    }
+
+    // Strip _id so Mongoose mints fresh subdocument ids for the copy
+    const fields = (source.fields || []).map(({ _id, ...f }, i) => ({ ...f, order: i }));
+
+    // Re-checked rather than trusted: a college selected on the source form
+    // may have been deleted since, and must not be carried into the copy.
+    const validated = await validateCollegeSelections(fields, req.workspaceId);
+
+    const requestedName = String(req.body?.name || '').trim();
+    const form = await Form.create({
+      workspace: req.workspaceId,
+      name: (requestedName || `${source.name} (Copy)`).slice(0, 200),
+      description: source.description || '',
+      // A copy starts Inactive so it cannot collect responses before you have
+      // reviewed it — its link is new and unshared anyway.
+      status: 'Inactive',
+      origin: 'custom',
+      fields: validated,
+      publicSlug: generatePublicToken('frm'),   // never reuse the source's link
+      createdBy: req.admin.id
+    });
+
+    res.status(201).json({ ...form.toObject(), responseCount: 0, duplicatedFrom: String(source._id) });
+  } catch (err) {
+    console.error('[POST /api/forms/:id/duplicate]', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 // ── GET /api/forms/:id ────────────────────────────────────────────────────
 router.get('/:id', auth, requireWorkspace, async (req, res) => {
   try {

@@ -6,7 +6,7 @@ import Spinner from '../components/Spinner'
 import { formUrlFor, ADMIN_FORM_EDIT, ADMIN_FORM_RESPONSES, ADMIN_DASHBOARD } from '../utils/routes'
 import {
   IconPlus, IconClose, IconLink, IconEdit, IconEye, IconTrash, IconDocument,
-  IconArrowRight, IconCheckCircle, IconCalendar, IconArchive, IconSearch
+  IconArrowRight, IconCheckCircle, IconCalendar, IconArchive, IconSearch, IconCopy
 } from '../components/Icons'
 
 function CreateFormModal({ onClose, onCreated }) {
@@ -72,10 +72,16 @@ function CreateFormModal({ onClose, onCreated }) {
   )
 }
 
-function FormCard({ form, onOpenBuilder, onOpenResponses, onDelete, onCopyLink }) {
+function FormCard({ form, onOpenBuilder, onOpenResponses, onDelete, onCopyLink, onDuplicate }) {
   const [copied, setCopied] = useState(false)
+  const [duplicating, setDuplicating] = useState(false)
   const isLegacy = form.origin === 'legacy'
   const active = form.status === 'Active'
+
+  async function duplicate() {
+    setDuplicating(true)
+    try { await onDuplicate(form) } finally { setDuplicating(false) }
+  }
 
   function copy() {
     onCopyLink(form)
@@ -139,6 +145,13 @@ function FormCard({ form, onOpenBuilder, onOpenResponses, onDelete, onCopyLink }
           </button>
         )}
         {!isLegacy && (
+          <button onClick={duplicate} disabled={duplicating}
+            className="btn-secondary !py-2 !px-3 text-[13px]"
+            title="Create a copy of this form with the same fields">
+            {duplicating ? <><Spinner /> Copying…</> : <><IconCopy /> Duplicate</>}
+          </button>
+        )}
+        {!isLegacy && (
           <button onClick={() => onDelete(form)} title="Delete form"
             className="icon-btn ml-auto hover:!bg-red-50 hover:!text-red-600"><IconTrash /></button>
         )}
@@ -179,6 +192,17 @@ export default function AdminForms() {
       ? `${ADMIN_DASHBOARD}?form=${form._id}`
       : ADMIN_FORM_RESPONSES.replace(':formId', form._id)
   )
+
+  // Duplicating opens the copy straight in the builder — the point is to
+  // tweak the reused fields, not to hunt for the new card afterwards.
+  async function handleDuplicate(form) {
+    try {
+      const res = await API.post(`/api/forms/${form._id}/duplicate`)
+      navigate(ADMIN_FORM_EDIT.replace(':formId', res.data._id))
+    } catch (err) {
+      alert(err.response?.data?.message || 'Failed to duplicate form')
+    }
+  }
 
   async function handleDelete(form) {
     if (!confirm(`Delete "${form.name}"? This cannot be undone.`)) return
@@ -260,6 +284,7 @@ export default function AdminForms() {
               onOpenResponses={openResponses}
               onDelete={handleDelete}
               onCopyLink={copyLink}
+              onDuplicate={handleDuplicate}
             />
           ))}
         </div>

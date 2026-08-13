@@ -219,6 +219,12 @@ export const IconDrag = p => (
     <circle cx="15" cy="12" r="1.4" /><circle cx="9" cy="18" r="1.4" /><circle cx="15" cy="18" r="1.4" />
   </svg>
 )
+export const IconCopy = p => (
+  <svg viewBox="0 0 24 24" width={p.size || 15} height={p.size || 15} {...base} className={p.className}>
+    <rect x="8.5" y="8.5" width="12" height="12" rx="2" />
+    <path d="M15.5 5.5H5.5a1 1 0 0 0-1 1v10" />
+  </svg>
+)
 export const IconArchive = p => (
   <svg viewBox="0 0 24 24" width={p.size || 15} height={p.size || 15} {...base} className={p.className}>
     <rect x="3.5" y="4" width="17" height="4" rx="1" /><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8" /><path d="M10 12h4" />
