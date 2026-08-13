@@ -13,6 +13,11 @@ const VALID_STATUS = ['Active', 'Inactive'];
 // A form's response count spans both places an application can live: custom
 // forms collect FormSubmissions, while the legacy intake forms own Student
 // records. One number, whichever kind of form it is.
+//
+// Counted the same way as the Applications dashboard — one row per APPLICATION.
+// A candidate created BY a submission must not be added on top of it, or every
+// custom-form response is counted twice (this is what made a form with 46
+// responses report 83).
 async function responseCountsFor(workspaceId, formIds) {
   const [submissions, students] = await Promise.all([
     FormSubmission.aggregate([
@@ -20,7 +25,7 @@ async function responseCountsFor(workspaceId, formIds) {
       { $group: { _id: '$form', count: { $sum: 1 } } }
     ]),
     Student.aggregate([
-      { $match: { workspace: workspaceId, form: { $in: formIds } } },
+      { $match: { workspace: workspaceId, form: { $in: formIds }, hasFormSubmission: { $ne: true } } },
       { $group: { _id: '$form', count: { $sum: 1 } } }
     ])
   ]);
