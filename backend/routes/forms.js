@@ -276,7 +276,22 @@ router.get('/:id/responses', auth, requireWorkspace, async (req, res) => {
       FormSubmission.find(filter).sort({ submittedAt: -1 }).skip((page - 1) * limit).limit(limit).lean()
     ]);
 
-    res.json({ form, page, limit, total, rows });
+    // Resolve each college field's selection to real names so the response
+    // editor offers exactly the colleges this form offers, not raw ids.
+    const collegeIds = [...new Set(
+      form.fields.filter(f => f.type === 'college').flatMap(f => (f.selectedCollegeIds || []).map(String))
+    )];
+    const colleges = collegeIds.length
+      ? await College.find({ _id: { $in: collegeIds }, workspace: req.workspaceId }).select('name').sort({ name: 1 }).lean()
+      : [];
+    const nameById = new Map(colleges.map(c => [String(c._id), c.name]));
+
+    const fields = form.fields.map(f => f.type === 'college'
+      ? { ...f, collegeOptions: (f.selectedCollegeIds || []).map(id => nameById.get(String(id))).filter(Boolean) }
+      : f
+    );
+
+    res.json({ form: { ...form, fields }, page, limit, total, rows });
   } catch (err) {
     console.error('[GET /api/forms/:id/responses]', err);
     res.status(500).json({ message: 'Server error' });

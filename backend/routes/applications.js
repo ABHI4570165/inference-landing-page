@@ -366,6 +366,97 @@ router.get('/colleges', auth, requireWorkspace, async (req, res) => {
   }
 });
 
+// ── Shared: rewrite one submission's answers, validated against ITS form ──
+// Used by both the candidate editor and the per-response editor so the rules
+// (unknown fields dropped, required fields enforced, college answers limited
+// to that form's selection, uploaded files preserved) can never diverge.
+// Returns { error } for a rejection, otherwise saves and keeps the linked
+// candidate's identity columns in step — reception matches on phone,
+// counselling on email, attendance on college.
+async function applyResponseUpdate(submission, form, body, workspaceId) {
+  const incoming = (body && typeof body.responses === 'object' && body.responses) || {};
+  const byId = new Map(form.fields.map(f => [String(f._id), f]));
+
+  const responses = {};
+  for (const [key, value] of Object.entries(incoming)) {
+    if (byId.has(key)) responses[key] = value;
+  }
+
+  // A file field is never re-sent by the editor, so whatever is already stored
+  // is carried across — both real uploads and the bare filename strings kept
+  // from before uploads were saved. Without this, editing any other field on a
+  // response whose file field is REQUIRED would fail validation, or silently
+  // drop the file.
+  for (const field of form.fields.filter(f => f.type === 'file')) {
+    const key = String(field._id);
+    const existing = submission.responses?.[key];
+    if (existing !== undefined && existing !== null && responses[key] === undefined) {
+      responses[key] = existing;
+    }
+  }
+
+  const missing = form.fields.filter(f => f.required).filter(f => {
+    const v = responses[String(f._id)];
+    return v === undefined || v === null || (typeof v === 'string' && !v.trim()) || (Array.isArray(v) && !v.length);
+  });
+  if (missing.length) {
+    return { error: `Please fill in: ${missing.map(f => f.label).join(', ')}` };
+  }
+
+  const collegeFields = form.fields.filter(f => f.type === 'college');
+  if (collegeFields.length) {
+    const allIds = [...new Set(collegeFields.flatMap(f => (f.selectedCollegeIds || []).map(String)))];
+    const valid = allIds.length
+      ? await College.find({ _id: { $in: allIds }, workspace: workspaceId }).select('name').lean()
+      : [];
+    for (const f of collegeFields) {
+      const submitted = responses[String(f._id)];
+      if (submitted === undefined || submitted === '') continue;
+      const allowedNames = (f.selectedCollegeIds || [])
+        .map(id => valid.find(c => String(c._id) === String(id))?.name)
+        .filter(Boolean);
+      if (!allowedNames.includes(String(submitted))) {
+        return { error: `Invalid selection for "${f.label}"` };
+      }
+    }
+  }
+
+  submission.responses = responses;
+  submission.candidate = buildCandidateSummary(form.fields, responses);
+  await submission.save();
+
+  if (submission.student) {
+    const s = submission.candidate;
+    const patch = {};
+    if (s.name) patch.name = s.name;
+    if (s.email) patch.email = s.email;
+    if (s.phone) patch.phone = s.phone;
+    if (s.college) patch.college = s.college;
+    if (Object.keys(patch).length) await Student.updateOne({ _id: submission.student }, { $set: patch });
+  }
+
+  return { ok: true };
+}
+
+// ── PUT /api/applications/submissions/:id — edit one response ─────────────
+router.put('/submissions/:id', auth, requireWorkspace, async (req, res) => {
+  try {
+    const submission = await FormSubmission.findOne({ _id: req.params.id, workspace: req.workspaceId });
+    if (!submission) return res.status(404).json({ message: 'Response not found' });
+
+    const form = await Form.findOne({ _id: submission.form, workspace: req.workspaceId }).lean();
+    if (!form) return res.status(404).json({ message: 'The form for this response is no longer available' });
+
+    const outcome = await applyResponseUpdate(submission, form, req.body, req.workspaceId);
+    if (outcome.error) return res.status(400).json({ message: outcome.error });
+
+    res.json({ message: 'Saved' });
+  } catch (err) {
+    console.error('[PUT /api/applications/submissions/:id]', err);
+    res.status(500).json({ message: err.message || 'Server error' });
+  }
+});
+
 // ── GET /api/applications/candidates/:id — dynamic candidate detail ───────
 // What a candidate's record actually consists of depends on how they
 // registered, so this never returns a fixed field list:
@@ -488,56 +579,8 @@ router.put('/candidates/:id', auth, requireWorkspace, async (req, res) => {
     const form = await Form.findOne({ _id: submission.form, workspace: req.workspaceId }).lean();
     if (!form) return res.status(404).json({ message: 'The form for this candidate is no longer available' });
 
-    const incoming = (req.body && typeof req.body.responses === 'object' && req.body.responses) || {};
-    const byId = new Map(form.fields.map(f => [String(f._id), f]));
-
-    // Only fields that exist on THIS form are accepted
-    const responses = {};
-    for (const [key, value] of Object.entries(incoming)) {
-      if (byId.has(key)) responses[key] = value;
-    }
-
-    // Required fields, per this form's own configuration
-    const missing = form.fields.filter(f => f.required).filter(f => {
-      const v = responses[String(f._id)];
-      return v === undefined || v === null || (typeof v === 'string' && !v.trim()) || (Array.isArray(v) && !v.length);
-    });
-    if (missing.length) {
-      return res.status(400).json({ message: `Please fill in: ${missing.map(f => f.label).join(', ')}` });
-    }
-
-    // College answers must still be one of the colleges selected for this form
-    const collegeFields = form.fields.filter(f => f.type === 'college');
-    if (collegeFields.length) {
-      const allIds = [...new Set(collegeFields.flatMap(f => (f.selectedCollegeIds || []).map(String)))];
-      const valid = allIds.length
-        ? await College.find({ _id: { $in: allIds }, workspace: req.workspaceId }).select('name').lean()
-        : [];
-      for (const f of collegeFields) {
-        const key = String(f._id);
-        const submitted = responses[key];
-        if (submitted === undefined || submitted === '') continue;
-        const allowedNames = (f.selectedCollegeIds || [])
-          .map(id => valid.find(c => String(c._id) === String(id))?.name)
-          .filter(Boolean);
-        if (!allowedNames.includes(String(submitted))) {
-          return res.status(400).json({ message: `Invalid selection for "${f.label}"` });
-        }
-      }
-    }
-
-    submission.responses = responses;
-    submission.candidate = buildCandidateSummary(form.fields, responses);
-    await submission.save();
-
-    // Keep the candidate's identity columns in step with the edited answers —
-    // reception matches on phone, counselling on email, attendance on college.
-    const summary = submission.candidate;
-    if (summary.name) student.name = summary.name;
-    if (summary.email) student.email = summary.email;
-    if (summary.phone) student.phone = summary.phone;
-    if (summary.college) student.college = summary.college;
-    await student.save();
+    const outcome = await applyResponseUpdate(submission, form, req.body, req.workspaceId);
+    if (outcome.error) return res.status(400).json({ message: outcome.error });
 
     res.json({ message: 'Saved' });
   } catch (err) {
