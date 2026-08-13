@@ -1,4 +1,4 @@
-# Mandi Hariyanna Academy — Admin Portal (React SPA, client-side routed)
+# Admin Portal (React SPA, client-side routed)
 # Required on Apache/Hostinger: without this, direct visits or refreshes on
 # any route other than "/" (e.g. /adm-3e9f7b2c/login, /counselling) 404,
 # because Apache has no idea those paths are handled by React Router.

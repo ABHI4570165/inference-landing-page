@@ -5,13 +5,12 @@
 // workspace the form belongs to. The workspace's identity reaches the
 // candidate only through the form's own title/description.
 //
-// The logo is the existing asset already in the project (public/mandi-logo.png);
-// nothing new is invented.
+// Single source of truth for the public-facing brand. Every header, footer and
+// favicon reads from here, so the logo or wording changes in one place.
 
 const ORG = {
-  logo: '/mandi-logo.png',
+  logo: '/logo.svg',
   name: 'M H Foundation®',
-  academy: 'Mandi Hariyanna Academy',
   portal: 'Student Hiring Portal',
   email: 'mhskill2024@gmail.com'
 }
@@ -28,11 +27,8 @@ export function PublicHeader() {
               className="w-11 h-11 sm:w-12 sm:h-12 rounded-full object-contain flex-shrink-0"
             />
             <div className="min-w-0">
-              <p className="font-heading text-[15px] sm:text-[17px] font-bold text-brand-800 leading-tight truncate">
+              <p className="font-heading text-[16px] sm:text-[18px] font-bold text-brand-800 leading-tight truncate">
                 {ORG.name}
-              </p>
-              <p className="text-[11px] sm:text-[12px] text-ink-400 leading-tight truncate">
-                {ORG.academy}
               </p>
             </div>
           </div>
@@ -50,9 +46,9 @@ export function PublicFooter() {
     <footer className="bg-brand-900 text-white mt-auto">
       <div className="mx-auto w-full max-w-[920px] px-5 sm:px-8 py-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 text-center sm:text-left">
-          <div>
-            <p className="font-heading font-bold text-[15px] leading-tight">{ORG.academy}</p>
-            <p className="text-brand-300 text-[12.5px] mt-1">{ORG.name}</p>
+          <div className="flex items-center gap-3 justify-center sm:justify-start">
+            <img src={ORG.logo} alt="" className="w-9 h-9 rounded-full object-contain bg-white/95 p-0.5 flex-shrink-0" />
+            <p className="font-heading font-bold text-[15px] leading-tight">{ORG.name}</p>
           </div>
           <div className="text-brand-300 text-[12px] sm:text-right leading-relaxed">
             <p>© {new Date().getFullYear()} All rights reserved.</p>

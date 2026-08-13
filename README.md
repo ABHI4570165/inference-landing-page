@@ -1,4 +1,4 @@
-# Mandi Hariyanna Academy — Student Hiring Portal
+# Student Hiring Portal
 
 A full-stack MERN application for managing student job applications.
 

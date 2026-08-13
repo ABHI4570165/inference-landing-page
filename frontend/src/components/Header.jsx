@@ -14,10 +14,9 @@ export default function Header() {
           <div className="flex items-center gap-3 min-w-0">
             <img src={ORG.logo} alt={ORG.name} className="w-12 h-12 object-contain rounded-full flex-shrink-0" />
             <div className="min-w-0">
-              <h1 className="font-heading text-[17px] font-bold text-brand-800 leading-tight truncate">
+              <h1 className="font-heading text-[18px] font-bold text-brand-800 leading-tight truncate">
                 {ORG.name}
               </h1>
-              <p className="text-[12px] text-ink-400 leading-tight truncate">{ORG.academy}</p>
             </div>
           </div>
           <p className="text-[12px] font-semibold text-ink-500 tracking-wider uppercase flex-shrink-0">

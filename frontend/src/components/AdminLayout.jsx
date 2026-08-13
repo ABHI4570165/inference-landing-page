@@ -59,7 +59,7 @@ function SidebarContent({ workspace, admin, pathname, onNavigate, onSwitch, onLo
     <div className="flex flex-col h-full bg-brand-900 text-white">
       {/* Brand */}
       <div className="px-5 py-[18px] flex items-center gap-2.5 border-b border-white/10">
-        <img src="/mandi-logo.png" alt="" className="w-8 h-8 rounded-lg bg-white p-0.5 object-contain flex-shrink-0" />
+        <img src="/logo.svg" alt="" className="w-8 h-8 rounded-lg bg-white p-0.5 object-contain flex-shrink-0" />
         <div className="min-w-0">
           <p className="font-heading font-bold text-[15px] leading-tight">Recruitment</p>
           <p className="text-[11px] text-brand-300 leading-tight">Management Platform</p>

@@ -127,7 +127,7 @@ app.use('/api/public/forms', submitLimiter, require('./routes/publicForms'));
 
 // Health check
 app.get('/', (req, res) =>
-  res.json({ message: 'Mandi Hariyanna Portal API is running' })
+  res.json({ message: 'Portal API is running' })
 );
 
 // Global error handler — ensures all uncaught errors return JSON
