@@ -37,7 +37,7 @@ export default function AdminLogin() {
       <div className="relative w-full max-w-sm animate-fade-up">
         <div className="bg-white rounded-2xl shadow-panel p-8">
           <div className="text-center mb-7">
-            <img src="/logo.svg" alt="" className="w-14 h-14 object-contain mx-auto mb-4" />
+            <img src="/logo-white.svg" alt="" className="w-14 h-14 object-contain mx-auto mb-4" />
             <h1 className="font-heading text-[22px] font-bold text-ink-900">Welcome back</h1>
             <p className="text-ink-500 text-[13.5px] mt-1">Sign in to the recruitment admin panel</p>
           </div>

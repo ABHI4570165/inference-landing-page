@@ -9,7 +9,7 @@
 // favicon reads from here, so the logo or wording changes in one place.
 
 const ORG = {
-  logo: '/logo.svg',
+  logo: '/logo-white.svg',
   name: 'M H Foundation®',
   portal: 'Student Hiring Portal',
   email: 'mhskill2024@gmail.com'
