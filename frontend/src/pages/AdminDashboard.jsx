@@ -303,6 +303,33 @@ function Modal({ title, subtitle, onClose, children, width = 'max-w-lg' }) {
   )
 }
 
+// Opens a file uploaded through a custom form. Fetched with the admin's token
+// and handed to the browser as a blob, so the underlying storage URL is never
+// exposed — same approach as the intake resume proxy.
+async function openSubmissionFile(submissionId, fieldId, download) {
+  const win = download ? null : window.open('', '_blank')
+  if (win) win.document.write('<p style="font-family:sans-serif;color:#666">Loading…</p>')
+  try {
+    const res = await API.get(
+      `/api/applications/submissions/${submissionId}/file/${fieldId}${download ? '?download=1' : ''}`,
+      { responseType: 'blob' }
+    )
+    const url = URL.createObjectURL(res.data)
+    if (download) {
+      const a = document.createElement('a')
+      a.href = url
+      a.download = res.headers['content-disposition']?.match(/filename="(.+?)"/)?.[1] || 'file'
+      a.click()
+    } else if (win) {
+      win.location = url
+    }
+    setTimeout(() => URL.revokeObjectURL(url), 60000)
+  } catch {
+    if (win) win.close()
+    alert('Unable to open the file')
+  }
+}
+
 // ── Custom-form response detail ─────────────────────────────────────────────
 function SubmissionModal({ id, onClose }) {
   const [data, setData] = useState(null)
@@ -330,7 +357,19 @@ function SubmissionModal({ id, onClose }) {
                 {data.answers.map((a, i) => (
                   <div key={i} className="py-3 grid grid-cols-3 gap-4">
                     <dt className="text-[13px] text-ink-500 col-span-1">{a.label}</dt>
-                    <dd className="text-sm text-ink-800 font-medium col-span-2 break-words">{a.value || '—'}</dd>
+                    <dd className="text-sm text-ink-800 font-medium col-span-2 break-words">
+                      {a.file ? (
+                        // Streams through the authenticated proxy — the storage
+                        // URL is never exposed to the browser.
+                        <span className="flex items-center gap-2 flex-wrap">
+                          <span className="truncate">{a.file.originalName}</span>
+                          <button onClick={() => openSubmissionFile(id, a.file.fieldId, false)}
+                            className="btn-secondary !py-1 !px-2.5 text-[12px]"><IconEye size={13} /> View</button>
+                          <button onClick={() => openSubmissionFile(id, a.file.fieldId, true)}
+                            className="btn-secondary !py-1 !px-2.5 text-[12px]"><IconDownload size={13} /> Download</button>
+                        </span>
+                      ) : (a.value || '—')}
+                    </dd>
                   </div>
                 ))}
               </dl>

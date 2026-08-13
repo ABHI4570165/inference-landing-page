@@ -37,8 +37,11 @@ router.get('/summary', auth, requireWorkspace, async (req, res) => {
       receptionToday, attendanceTrendAgg,
       activeForms, formResponses, submissionsToday
     ] = await Promise.all([
-      Student.countDocuments({ workspace: ws }),
-      Student.countDocuments({ workspace: ws, createdAt: { $gte: startOfToday } }),
+      // Only candidates that are not represented by a submission row — see
+      // NO_SUBMISSION_ONLY in routes/applications.js. Counting every Student
+      // AND every submission counted each form application twice.
+      Student.countDocuments({ workspace: ws, hasFormSubmission: { $ne: true } }),
+      Student.countDocuments({ workspace: ws, hasFormSubmission: { $ne: true }, createdAt: { $gte: startOfToday } }),
       Student.aggregate([
         { $match: { workspace: ws } },
         { $group: { _id: '$college', count: { $sum: 1 } } },

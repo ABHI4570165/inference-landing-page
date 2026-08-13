@@ -183,6 +183,29 @@ module.exports = async function backfillApplicationForms() {
     if (recovered > 0) {
       console.log(`✅  Recovered missing contact details for ${recovered} candidate(s) from their form responses`);
     }
+
+    // ── 6. Mark candidates that own a form submission ─────────────────────
+    // The Applications dashboard lists one row per APPLICATION: every
+    // submission is a row, so a candidate that owns submissions must not be
+    // listed separately as well. Without this flag each form application was
+    // counted twice on the workspace dashboard (once as the submission, once
+    // as the candidate it created) and repeat applications were hidden from
+    // the Applications list. Recomputed from the submissions themselves, so
+    // it is always consistent and safe to re-run.
+    const withSubmissions = (await FormSubmission.distinct('student')).filter(Boolean);
+    const [flagged, unflagged] = await Promise.all([
+      Student.updateMany(
+        { _id: { $in: withSubmissions }, hasFormSubmission: { $ne: true } },
+        { $set: { hasFormSubmission: true } }
+      ),
+      Student.updateMany(
+        { _id: { $nin: withSubmissions }, hasFormSubmission: true },
+        { $set: { hasFormSubmission: false } }
+      )
+    ]);
+    if (flagged.modifiedCount || unflagged.modifiedCount) {
+      console.log(`✅  Synced application ownership on ${flagged.modifiedCount + unflagged.modifiedCount} candidate(s)`);
+    }
   } catch (err) {
     console.error('[backfillApplicationForms] Migration error:', err);
   }

@@ -51,6 +51,14 @@ const studentSchema = new mongoose.Schema({
     enum: ['Fresher', '0-3 Years', '3+ Years']
   },
 
+  // True once at least one custom-form submission is attached to this
+  // candidate. The Applications dashboard lists one row per APPLICATION: every
+  // FormSubmission is a row, so a candidate that owns submissions must not also
+  // be listed in its own right or the same application appears twice. Legacy
+  // intake candidates (no submission) stay listed directly. Maintained by
+  // services/applicationForms.js; indexed because it filters the main list.
+  hasFormSubmission: { type: Boolean, default: false, index: true },
+
   // Which Form this application came through — the ONLY thing the
   // Applications dashboard groups, filters and labels by. Every application
   // (including the pre-Forms intake channels, via the legacy Form records

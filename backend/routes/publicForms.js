@@ -2,7 +2,39 @@ const router = require('express').Router();
 const Form = require('../models/Form');
 const FormSubmission = require('../models/FormSubmission');
 const College = require('../models/College');
+const multer = require('multer');
+const cloudinary = require('../config/cloudinary');
 const { buildCandidateSummary, linkSubmissionToCandidate } = require('../services/applicationForms');
+
+// ── File uploads for custom-form 'file' fields ──────────────────────────────
+// A 'file' field used to store the FILENAME only — candidates uploaded their
+// CV and the file itself was never sent anywhere, so nothing could be opened
+// later. Files are now uploaded to Cloudinary before submission and the field
+// stores a descriptor the admin UI can stream back.
+const uploadToMemory = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 } // 10 MB, same cap as intake resumes
+});
+
+const EXT_BY_MIME = {
+  'application/pdf': 'pdf',
+  'application/msword': 'doc',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+  'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp'
+};
+const ALLOWED_EXT = ['pdf', 'doc', 'docx', 'jpg', 'jpeg', 'png', 'webp'];
+
+function resolveExt(file) {
+  const name = file.originalname || '';
+  const dot = name.lastIndexOf('.');
+  const fromName = dot > -1 ? name.slice(dot + 1).toLowerCase() : '';
+  if (ALLOWED_EXT.includes(fromName)) return fromName;
+  return EXT_BY_MIME[file.mimetype] || null;
+}
+
+// A stored file value. Kept as an object so the admin can tell a real upload
+// from the bare filename strings collected before uploads existed.
+const isFileValue = v => v && typeof v === 'object' && !Array.isArray(v) && v.kind === 'file';
 
 // Legacy intake forms exist only to categorise pre-Forms applications; they
 // have no builder-defined fields and their real public pages are the original
@@ -46,6 +78,50 @@ router.get('/:publicSlug', async (req, res) => {
   }
 });
 
+// ── POST /api/public/forms/:publicSlug/upload ───────────────────────────────
+// Uploads one file for a specific 'file' field and returns the descriptor the
+// candidate's browser then submits as that field's value. The form must be
+// live and the target field must genuinely be a file field, so this cannot be
+// used as an open upload endpoint.
+router.post('/:publicSlug/upload', uploadToMemory.single('file'), async (req, res) => {
+  try {
+    const form = await Form.findOne({ publicSlug: req.params.publicSlug, ...PUBLIC_FORM_QUERY })
+      .select('fields workspace').lean();
+    if (!form) return res.status(404).json({ message: 'This form is not available.' });
+    if (!req.file) return res.status(400).json({ message: 'No file received' });
+
+    const field = form.fields.find(f => String(f._id) === String(req.body.fieldId) && f.type === 'file');
+    if (!field) return res.status(400).json({ message: 'Unknown upload field' });
+
+    const ext = resolveExt(req.file);
+    if (!ext) {
+      return res.status(400).json({ message: 'Only PDF, DOC, DOCX or image files are allowed' });
+    }
+
+    const dataUri = `data:${req.file.mimetype || 'application/octet-stream'};base64,${req.file.buffer.toString('base64')}`;
+    const result = await cloudinary.uploader.upload(dataUri, {
+      folder: 'form-uploads',
+      resource_type: 'raw',
+      public_id: `upload_${Date.now()}_${Math.round(Math.random() * 1e9)}.${ext}`
+    });
+
+    res.status(201).json({
+      kind: 'file',
+      url: result.secure_url,
+      publicId: result.public_id,
+      originalName: req.file.originalname || `file.${ext}`,
+      size: req.file.size,
+      mimeType: req.file.mimetype || ''
+    });
+  } catch (err) {
+    if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(413).json({ message: 'File is too large. Maximum size is 10MB.' });
+    }
+    console.error('[POST /api/public/forms/:publicSlug/upload]', err);
+    res.status(502).json({ message: 'Upload failed. Please try again.' });
+  }
+});
+
 // ── POST /api/public/forms/:publicSlug/submit ───────────────────────────────
 // workspace + form are always resolved server-side from the slug — the
 // candidate's request body can never inject a workspaceId/formId.
@@ -70,6 +146,32 @@ router.post('/:publicSlug/submit', async (req, res) => {
     const cleanResponses = {};
     for (const [key, value] of Object.entries(responses)) {
       if (validIds.has(key)) cleanResponses[key] = value;
+    }
+
+    // File fields: the value must be a descriptor this server issued from the
+    // /upload endpoint above. Only the known keys are kept and the URL must
+    // point at our own Cloudinary account, so a crafted submission cannot
+    // store an arbitrary link for an admin to click later.
+    const ourCloud = `https://res.cloudinary.com/${process.env.CLOUDINARY_CLOUD_NAME}/`;
+    for (const field of form.fields.filter(f => f.type === 'file')) {
+      const key = String(field._id);
+      const value = cleanResponses[key];
+      if (value === undefined) continue;
+
+      if (isFileValue(value) && typeof value.url === 'string' && value.url.startsWith(ourCloud)) {
+        cleanResponses[key] = {
+          kind: 'file',
+          url: value.url,
+          publicId: String(value.publicId || ''),
+          originalName: String(value.originalName || '').slice(0, 200),
+          size: Number(value.size) || 0,
+          mimeType: String(value.mimeType || '').slice(0, 100)
+        };
+      } else {
+        // Anything else (including the bare filename strings collected before
+        // uploads existed) is kept only as text — never as a link.
+        cleanResponses[key] = typeof value === 'string' ? value.slice(0, 200) : '';
+      }
     }
 
     // College fields: the submitted value must be the _id of a college that

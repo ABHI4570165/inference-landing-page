@@ -6,7 +6,10 @@ import Spinner from '../components/Spinner'
 import { ADMIN_FORMS, ADMIN_DASHBOARD } from '../utils/routes'
 import { IconChevronLeft, IconChevronRight, IconDownload, IconInbox } from '../components/Icons'
 
-const cell = v => Array.isArray(v) ? v.join(', ') : (v ?? '')
+// An uploaded file renders as its filename; everything else as text.
+const isFile = v => v && typeof v === 'object' && !Array.isArray(v) && v.url
+const cell = v => isFile(v) ? (v.originalName || 'Uploaded file')
+  : Array.isArray(v) ? v.join(', ') : (v ?? '')
 
 export default function AdminFormResponses() {
   const { formId } = useParams()

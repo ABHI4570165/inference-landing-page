@@ -20,7 +20,62 @@ import { IconCheckCircle, IconClose } from '../components/Icons'
 // row on wider screens.
 const FULL_WIDTH_TYPES = new Set(['textarea', 'checkbox', 'radio', 'file'])
 
-function Field({ field, value, onChange }) {
+// Uploads the chosen file immediately and stores the descriptor the server
+// returns as this field's value. Previously only the filename was captured and
+// the file itself was never sent anywhere, so uploaded CVs could never be
+// opened by an admin.
+function FileField({ field, value, onChange, slug }) {
+  const [uploading, setUploading] = useState(false)
+  const [error, setError] = useState('')
+
+  async function handleFile(e) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setUploading(true)
+    setError('')
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      fd.append('fieldId', field._id)
+      const res = await API.post(`/api/public/forms/${slug}/upload`, fd)
+      onChange(res.data)
+    } catch (err) {
+      setError(err.response?.data?.message || 'Upload failed. Please try again.')
+      onChange('')
+      e.target.value = ''
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  const uploaded = value && typeof value === 'object' && value.url
+
+  return (
+    <div>
+      <input
+        type="file"
+        // Required only until a file has actually been uploaded
+        required={field.required && !uploaded}
+        disabled={uploading}
+        className="form-input file:mr-3 file:py-1 file:px-3 file:rounded-md file:border-0
+                   file:text-[13px] file:font-medium file:bg-brand-50 file:text-brand-700 cursor-pointer
+                   disabled:opacity-60"
+        onChange={handleFile}
+      />
+      {uploading && (
+        <p className="flex items-center gap-2 text-[12.5px] text-ink-500 mt-1.5"><Spinner /> Uploading…</p>
+      )}
+      {uploaded && !uploading && (
+        <p className="flex items-center gap-1.5 text-[12.5px] text-brand-700 mt-1.5">
+          <IconCheckCircle size={14} /> {value.originalName} uploaded
+        </p>
+      )}
+      {error && <p className="text-[12.5px] text-red-600 mt-1.5">{error}</p>}
+    </div>
+  )
+}
+
+function Field({ field, value, onChange, slug }) {
   const common = {
     className: 'form-input',
     placeholder: field.placeholder || '',
@@ -91,14 +146,7 @@ function Field({ field, value, onChange }) {
         </div>
       )
     case 'file':
-      // No backend file storage for custom forms yet — captures the filename
-      // only, so the field works end-to-end without silently failing.
-      return (
-        <input type="file" required={field.required}
-          className="form-input file:mr-3 file:py-1 file:px-3 file:rounded-md file:border-0
-                     file:text-[13px] file:font-medium file:bg-brand-50 file:text-brand-700 cursor-pointer"
-          onChange={e => onChange(e.target.files?.[0]?.name || '')} />
-      )
+      return <FileField field={field} value={value} onChange={onChange} slug={slug} />
     case 'date':
       return <input type="date" {...common} value={value || ''} onChange={e => onChange(e.target.value)} />
     case 'number':
@@ -249,6 +297,7 @@ export default function PublicForm() {
                     <Field
                       field={field}
                       value={values[field._id]}
+                      slug={publicSlug}
                       onChange={v => setValues(prev => ({ ...prev, [field._id]: v }))}
                     />
                   </div>

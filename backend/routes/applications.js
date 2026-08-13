@@ -64,9 +64,24 @@ function parseFilters(query) {
   };
 }
 
+// ── What counts as one application ──────────────────────────────────────────
+// An application is a SUBMISSION EVENT, not a person. One candidate can apply
+// more than once (a second form, or the same form twice) and each of those is
+// an application the admin expects to see and count.
+//
+//   • every FormSubmission          → one row
+//   • every Student with NO submission (legacy intake) → one row
+//
+// The candidate identity is still shared underneath — attendance, reception,
+// counselling and the report all hang off the single Student — but the LIST is
+// a list of applications. Excluding candidates that own submissions is what
+// stops an application being counted twice (once as the submission, once as
+// the candidate it created).
+const NO_SUBMISSION_ONLY = { hasFormSubmission: { $ne: true } };
+
 // Match stage for the Student collection
 function studentMatch(workspaceId, f) {
-  const conditions = [{ workspace: workspaceId }];
+  const conditions = [{ workspace: workspaceId }, NO_SUBMISSION_ONLY];
   if (f.formId) conditions.push({ form: f.formId });
   if (f.college) conditions.push({ college: f.college });
   if (f.role) conditions.push({ selected_role: f.role });
@@ -80,15 +95,9 @@ function studentMatch(workspaceId, f) {
   return { $and: conditions };
 }
 
-// Match stage for the FormSubmission collection.
-// Submissions that produced a candidate (`student` set) are represented on
-// this dashboard by that candidate's own row — including them here as well
-// would list the same person twice. Only response-only submissions (forms
-// that collect no identifying details) appear in their own right.
-const UNLINKED_ONLY = { student: { $in: [null, undefined] } };
-
+// Match stage for the FormSubmission collection — every submission is a row.
 function submissionMatch(workspaceId, f) {
-  const conditions = [{ workspace: workspaceId }, UNLINKED_ONLY];
+  const conditions = [{ workspace: workspaceId }];
   if (f.formId) conditions.push({ form: f.formId });
   if (f.college) conditions.push({ 'candidate.college': f.college });
   if (f.dateRange) conditions.push({ submittedAt: f.dateRange });
@@ -126,6 +135,9 @@ const SUBMISSION_PROJECTION = {
   kind: { $literal: 'submission' },
   form: 1,
   submittedAt: 1,
+  // The candidate this application belongs to — lets the row show the same
+  // workflow chain and open the same candidate editor as an intake row.
+  student: 1,
   name:    { $ifNull: ['$candidate.name', ''] },
   email:   { $ifNull: ['$candidate.email', ''] },
   phone:   { $ifNull: ['$candidate.phone', ''] },
@@ -181,14 +193,22 @@ router.get('/', auth, requireWorkspace, async (req, res) => {
     // the same rules the public reception/counselling gates enforce
     // (services/candidateWorkflow), in one batched set of queries — so what
     // the admin sees is exactly what the backend will allow.
-    const studentIds = rows.filter(r => r.kind === 'student').map(r => r._id);
+    // A submission row belongs to a candidate too, so both kinds resolve their
+    // chain the same way — via the Student the application is attached to.
+    const candidateIdOf = row => row.kind === 'student' ? row._id : row.student;
+    const studentIds = rows.map(candidateIdOf).filter(Boolean);
     const workflowByStudent = await buildWorkflowMap(studentIds, ws);
 
     const withForm = rows.map(row => {
       const form = row.form ? formById.get(String(row.form)) : null;
-      const workflow = row.kind === 'student' ? workflowByStudent.get(String(row._id)) : null;
+      const candidateId = candidateIdOf(row);
+      const workflow = candidateId ? workflowByStudent.get(String(candidateId)) : null;
       return {
         ...row,
+        // The record to act on for candidate-level operations (edit, workflow).
+        // Null only for a response-only submission from a form that collects
+        // no identifying details.
+        candidateId: candidateId ? String(candidateId) : null,
         formId: row.form ? String(row.form) : null,
         formName: form?.name || 'Unassigned',
         formStatus: form?.status || null,
@@ -219,7 +239,7 @@ router.get('/stats', auth, requireWorkspace, async (req, res) => {
     const [forms, studentByForm, submissionByForm, studentTotals, submissionTotals, topColleges] = await Promise.all([
       Form.find({ workspace: ws }).select('name description status origin createdAt').sort({ createdAt: 1 }).lean(),
       Student.aggregate([
-        { $match: { workspace: ws } },
+        { $match: { workspace: ws, ...NO_SUBMISSION_ONLY } },
         { $group: {
           _id: '$form',
           count: { $sum: 1 },
@@ -227,7 +247,7 @@ router.get('/stats', auth, requireWorkspace, async (req, res) => {
         } }
       ]),
       FormSubmission.aggregate([
-        { $match: { workspace: ws, ...UNLINKED_ONLY } },
+        { $match: { workspace: ws } },
         { $group: {
           _id: '$form',
           count: { $sum: 1 },
@@ -235,7 +255,7 @@ router.get('/stats', auth, requireWorkspace, async (req, res) => {
         } }
       ]),
       Student.aggregate([
-        { $match: { workspace: ws } },
+        { $match: { workspace: ws, ...NO_SUBMISSION_ONLY } },
         { $group: {
           _id: null,
           total: { $sum: 1 },
@@ -243,7 +263,7 @@ router.get('/stats', auth, requireWorkspace, async (req, res) => {
         } }
       ]),
       FormSubmission.aggregate([
-        { $match: { workspace: ws, ...UNLINKED_ONLY } },
+        { $match: { workspace: ws } },
         { $group: {
           _id: null,
           total: { $sum: 1 },
@@ -536,6 +556,17 @@ router.get('/submissions/:id', auth, requireWorkspace, async (req, res) => {
     const form = await Form.findOne({ _id: submission.form, workspace: req.workspaceId }).select('name fields status').lean();
     const answers = (form?.fields || []).map(field => {
       const value = submission.responses?.[String(field._id)];
+      // An uploaded file is returned as metadata + the field id the client
+      // needs to stream it back through the authenticated proxy — never the
+      // storage URL itself.
+      if (value && typeof value === 'object' && !Array.isArray(value) && value.url) {
+        return {
+          label: field.label,
+          type: field.type,
+          value: value.originalName || 'Uploaded file',
+          file: { fieldId: String(field._id), originalName: value.originalName || 'file', size: value.size || 0 }
+        };
+      }
       return {
         label: field.label,
         type: field.type,
@@ -556,11 +587,54 @@ router.get('/submissions/:id', auth, requireWorkspace, async (req, res) => {
   }
 });
 
+// ── GET /api/applications/submissions/:id/file/:fieldId ───────────────────
+// Streams a file uploaded through a custom form's 'file' field. Same rule as
+// the intake resume proxy: the storage URL never reaches the browser, the file
+// is served behind admin auth and scoped to the workspace. ?download=1 forces
+// an attachment.
+router.get('/submissions/:id/file/:fieldId', auth, requireWorkspace, async (req, res) => {
+  try {
+    const submission = await FormSubmission.findOne({ _id: req.params.id, workspace: req.workspaceId }).lean();
+    if (!submission) return res.status(404).json({ message: 'Application not found' });
+
+    const value = submission.responses?.[req.params.fieldId];
+    if (!value || typeof value !== 'object' || !value.url) {
+      return res.status(404).json({ message: 'No file was uploaded for this field' });
+    }
+
+    const upstream = await fetch(value.url);
+    if (!upstream.ok) {
+      console.error(`[GET submissions/:id/file] upstream ${upstream.status} for ${submission._id}`);
+      return res.status(502).json({ message: 'Unable to retrieve the file' });
+    }
+
+    const safeName = String(value.originalName || 'file').replace(/[^\w.\- ]/g, '_');
+    res.setHeader('Content-Type', value.mimeType || 'application/octet-stream');
+    res.setHeader('Content-Disposition', `${req.query.download === '1' ? 'attachment' : 'inline'}; filename="${safeName}"`);
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.send(Buffer.from(await upstream.arrayBuffer()));
+  } catch (err) {
+    console.error('[GET /api/applications/submissions/:id/file]', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 // ── DELETE /api/applications/submissions/:id ──────────────────────────────
 router.delete('/submissions/:id', auth, requireWorkspace, async (req, res) => {
   try {
     const deleted = await FormSubmission.findOneAndDelete({ _id: req.params.id, workspace: req.workspaceId });
     if (!deleted) return res.status(404).json({ message: 'Application not found' });
+
+    // Once a candidate has no submissions left they become their own
+    // application row again, so the flag that suppresses that must be cleared
+    // — otherwise the candidate would vanish from the dashboard entirely.
+    if (deleted.student) {
+      const remaining = await FormSubmission.countDocuments({ student: deleted.student, workspace: req.workspaceId });
+      if (remaining === 0) {
+        await Student.updateOne({ _id: deleted.student }, { $set: { hasFormSubmission: false } });
+      }
+    }
+
     res.json({ message: 'Deleted successfully' });
   } catch (err) {
     console.error('[DELETE /api/applications/submissions/:id]', err);

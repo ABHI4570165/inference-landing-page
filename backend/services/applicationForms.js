@@ -66,7 +66,13 @@ async function ensureLegacyForm(workspaceId, source) {
 // College columns in the unified Applications table.
 function buildCandidateSummary(fields, responses) {
   const summary = { name: '', email: '', phone: '', college: '' };
-  const readable = v => Array.isArray(v) ? v.filter(Boolean).join(', ') : (v == null ? '' : String(v));
+  const readable = v => {
+    if (v == null) return '';
+    if (Array.isArray(v)) return v.filter(Boolean).join(', ');
+    // An uploaded file reads as its filename, never "[object Object]"
+    if (typeof v === 'object') return String(v.originalName || '');
+    return String(v);
+  };
 
   const firstOfType = types => {
     const field = (fields || []).find(f => types.includes(f.type) && readable(responses[String(f._id)]).trim());
@@ -173,11 +179,11 @@ async function linkSubmissionToCandidate({ workspaceId, formId, candidate }) {
   if (existing) {
     // Fill only genuinely missing details — never overwrite what the candidate
     // already supplied through the full intake application.
-    const patch = {};
+    const patch = { hasFormSubmission: true };
     if (!existing.college && college) patch.college = college;
     if (!existing.email && email) patch.email = email;
     if (!existing.phone && phone) patch.phone = phone;
-    if (Object.keys(patch).length) await Student.updateOne({ _id: existing._id }, { $set: patch });
+    await Student.updateOne({ _id: existing._id }, { $set: patch });
     return existing;
   }
 
@@ -188,6 +194,7 @@ async function linkSubmissionToCandidate({ workspaceId, formId, candidate }) {
     email: email || undefined,
     phone: phone || undefined,
     college: college || undefined,
+    hasFormSubmission: true,
     source: 'official_college'   // legacy channel discriminator; unused for display
   });
 }
