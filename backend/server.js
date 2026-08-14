@@ -37,18 +37,53 @@ app.set('trust proxy', 1);
 app.use(helmet({ crossOriginResourcePolicy: false }));
 
 // FRONTEND_URL may be a single origin or a comma-separated list (e.g. when
-// more than one deployed frontend — Vercel, a Hostinger subdomain, etc. —
-// needs to call this same API). Unset defaults to '*' (open), same as before.
+// more than one deployed frontend — Vercel, a custom domain, etc. — needs to
+// call this same API). Unset defaults to '*' (open), same as before.
+//
+// NOTE: this is read from the ENVIRONMENT, not from any file in the repo.
+// backend/.env is gitignored and never deployed, so on Render/Railway this
+// must be set in the host's own environment-variable settings.
+//
+// Origins are normalised before comparison. A browser's `Origin` header is
+// always scheme + host + optional port with NO trailing slash and a lowercase
+// host, so a value pasted as "https://example.com/" would otherwise never
+// match — the most common cause of a CORS failure that "should" work.
+function normaliseOrigin(value) {
+  const trimmed = String(value || '').trim().replace(/\/+$/, '');
+  if (!trimmed) return '';
+  try {
+    const url = new URL(trimmed);
+    return `${url.protocol}//${url.host}`.toLowerCase();
+  } catch {
+    return trimmed.toLowerCase();   // not a URL — compare as-is
+  }
+}
+
 const allowedOrigins = (process.env.FRONTEND_URL || '')
   .split(',')
-  .map(o => o.trim())
+  .map(normaliseOrigin)
   .filter(Boolean);
+
+if (allowedOrigins.length) {
+  console.log(`✓ CORS restricted to ${allowedOrigins.length} origin(s): ${allowedOrigins.join(', ')}`);
+} else {
+  console.warn('⚠  FRONTEND_URL is not set — CORS is open to any origin (*)');
+}
 
 app.use(cors({
   origin: allowedOrigins.length
     ? (origin, cb) => {
-        if (!origin || allowedOrigins.includes(origin)) return cb(null, true);
-        cb(new Error('Not allowed by CORS'));
+        // No Origin header: same-origin, curl, or a server-to-server call
+        if (!origin) return cb(null, true);
+        if (allowedOrigins.includes(normaliseOrigin(origin))) return cb(null, true);
+        // Rejected quietly rather than by throwing: the browser still blocks
+        // the call, but the API returns a normal response instead of a 500,
+        // and the real origin is logged so the mismatch is visible.
+        console.warn(
+          `[CORS] blocked origin "${origin}" — not in FRONTEND_URL ` +
+          `(allowed: ${allowedOrigins.join(', ')})`
+        );
+        cb(null, false);
       }
     : '*',
   credentials: true
