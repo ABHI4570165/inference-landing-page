@@ -3,6 +3,7 @@ import { useAuth } from '../context/AuthContext'
 import { useWorkspace } from '../context/WorkspaceContext'
 import { ADMIN_LOGIN, ADMIN_HOME, ADMIN_WORKSPACE_DASHBOARD } from '../utils/routes'
 import { IconHome, IconBuilding, IconSwitch, IconLogout, IconArrowRight } from './Icons'
+import { Logo } from './PublicShell'
 
 function initialsOf(name) {
   return (name || '').split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join('') || '?'
@@ -28,7 +29,7 @@ export default function GlobalSidebar() {
       <div className="app-sidebar-inner flex flex-col">
       {/* Brand */}
       <div className="px-5 py-[18px] flex items-center gap-2.5 border-b border-white/10">
-        <img src="/logo-white.svg" alt="" className="w-8 h-8 rounded-lg bg-white p-0.5 object-contain flex-shrink-0" />
+        <Logo alt="" className="w-8 h-8 rounded-full bg-white p-0.5 object-contain flex-shrink-0" />
         <div className="min-w-0">
           <p className="font-heading font-bold text-[15px] leading-tight">Recruitment</p>
           <p className="text-[11px] text-brand-300 leading-tight">Management Platform</p>

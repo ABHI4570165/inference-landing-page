@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useParams } from 'react-router-dom'
 import API from '../utils/api'
-import { PublicFooter } from '../components/PublicShell'
+import { PublicFooter, Logo } from '../components/PublicShell'
 
 const BRAND = '#0F4C81'
 
@@ -175,7 +175,7 @@ export default function Reception() {
     <div className="min-h-screen flex flex-col bg-white">
       {/* Header */}
       <header className="w-full py-4 px-6 flex items-center justify-center gap-3 shadow-md" style={{ background: BRAND }}>
-        <img src="/logo-white.svg" alt="M H Foundation" className="h-12 w-12 object-contain bg-white rounded-full p-1" />
+        <Logo alt="M H Foundation" className="h-12 w-12 object-contain bg-white rounded-full p-1" />
         <span className="text-white font-heading font-bold text-xl tracking-wide">M H Foundation</span>
       </header>
 
@@ -184,7 +184,7 @@ export default function Reception() {
 
           {step === 'welcome' && (
             <div className="text-center bg-white rounded-2xl shadow-lg border border-gray-100 px-8 py-14 transition-all">
-              <img src="/logo-white.svg" alt="" className="h-24 w-24 object-contain mx-auto mb-6" />
+              <Logo alt="" className="h-24 w-24 object-contain mx-auto mb-6" />
               <p className="text-gray-500 text-lg">Welcome to</p>
               <h1 className="font-heading text-4xl font-bold mt-1 mb-4" style={{ color: BRAND }}>M H Foundation</h1>
               <p className="text-gray-600 text-lg mb-10">Please complete Reception Registration</p>

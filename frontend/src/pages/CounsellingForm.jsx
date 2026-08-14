@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useParams } from 'react-router-dom'
 import API from '../utils/api'
 import Spinner from '../components/Spinner'
-import { PublicFooter } from '../components/PublicShell'
+import { PublicFooter, Logo } from '../components/PublicShell'
 
 // Public counselling assessment form (opened from the QR code).
 // Flow: verify identity → attendance check → section-wise questionnaire with
@@ -480,7 +480,7 @@ function Shell({ children }) {
     <div className="min-h-screen bg-surface-100 flex flex-col">
       <header className="bg-brand-800 text-white">
         <div className="max-w-3xl mx-auto px-4 py-5 flex items-center gap-3">
-          <img src="/logo-white.svg" alt="M H Foundation" className="w-10 h-10 object-contain bg-white rounded-full p-0.5 flex-shrink-0" />
+          <Logo alt="M H Foundation" className="w-10 h-10 object-contain bg-white rounded-full p-0.5 flex-shrink-0" />
           <div>
             <h1 className="font-heading font-bold text-lg leading-tight">Student Counselling Assessment</h1>
             <p className="text-brand-200 text-xs">M H Foundation — Career Counselling</p>

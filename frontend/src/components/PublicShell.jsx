@@ -9,10 +9,30 @@
 // favicon reads from here, so the logo or wording changes in one place.
 
 const ORG = {
-  logo: '/logo-white.svg',
+  logo: '/logo.png',
+  logoFallback: '/logo.svg',
   name: 'M H Foundation®',
   portal: 'Student Hiring Portal',
   email: 'mhskill2024@gmail.com'
+}
+
+// The brand mark, used everywhere the logo appears (admin shell, login, public
+// header/footer, reception, counselling). Falls back to the bundled SVG if the
+// primary file is missing, so a missing asset degrades to a placeholder rather
+// than a broken-image icon on a page candidates see.
+export function Logo({ className = '', alt = '' }) {
+  return (
+    <img
+      src={ORG.logo}
+      alt={alt}
+      className={className}
+      onError={e => {
+        if (e.currentTarget.dataset.fellBack) return   // avoid a retry loop
+        e.currentTarget.dataset.fellBack = '1'
+        e.currentTarget.src = ORG.logoFallback
+      }}
+    />
+  )
 }
 
 export function PublicHeader() {
@@ -21,8 +41,7 @@ export function PublicHeader() {
       <div className="mx-auto w-full max-w-[920px] px-5 sm:px-8">
         <div className="flex items-center justify-between gap-4 py-3.5">
           <div className="flex items-center gap-3 min-w-0">
-            <img
-              src={ORG.logo}
+            <Logo
               alt={ORG.name}
               className="w-11 h-11 sm:w-12 sm:h-12 rounded-full object-contain flex-shrink-0"
             />
@@ -47,7 +66,7 @@ export function PublicFooter() {
       <div className="mx-auto w-full max-w-[920px] px-5 sm:px-8 py-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 text-center sm:text-left">
           <div className="flex items-center gap-3 justify-center sm:justify-start">
-            <img src={ORG.logo} alt="" className="w-9 h-9 rounded-full object-contain bg-white/95 p-0.5 flex-shrink-0" />
+            <Logo alt="" className="w-9 h-9 rounded-full object-contain bg-white/95 p-0.5 flex-shrink-0" />
             <p className="font-heading font-bold text-[15px] leading-tight">{ORG.name}</p>
           </div>
           <div className="text-brand-300 text-[12px] sm:text-right leading-relaxed">
