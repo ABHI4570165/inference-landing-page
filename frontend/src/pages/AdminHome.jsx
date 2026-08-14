@@ -305,7 +305,7 @@ export default function AdminHome() {
             still need a home on small screens. */}
         <header className="lg:hidden bg-brand-900 text-white px-4 py-3 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2.5 min-w-0">
-            <Logo alt="" className="w-8 h-8 rounded-full bg-white p-0.5 object-contain flex-shrink-0" />
+            <Logo alt="" className="w-8 h-8 rounded-full p-0.5 object-contain flex-shrink-0" />
             <div className="min-w-0">
               <p className="font-heading font-bold text-sm leading-tight">Recruitment</p>
               <p className="text-[11px] text-brand-300 leading-tight truncate">{admin?.email}</p>

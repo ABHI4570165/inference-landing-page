@@ -175,7 +175,7 @@ export default function Reception() {
     <div className="min-h-screen flex flex-col bg-white">
       {/* Header */}
       <header className="w-full py-4 px-6 flex items-center justify-center gap-3 shadow-md" style={{ background: BRAND }}>
-        <Logo alt="M H Foundation" className="h-12 w-12 object-contain bg-white rounded-full p-1" />
+        <Logo alt="M H Foundation" className="h-12 w-12 object-contain rounded-full p-1" />
         <span className="text-white font-heading font-bold text-xl tracking-wide">M H Foundation</span>
       </header>
 
