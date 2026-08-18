@@ -219,22 +219,48 @@ export default function AdminFormResponses() {
   }
 
   function handleExport() {
+    // Fetch all pages of responses (server limits page size to 100).
     const fields = data.form.fields || []
     const headers = ['#', 'Submitted At', ...fields.map(f => f.label)]
-    const body = data.rows.map((row, i) => [
-      i + 1,
-      new Date(row.submittedAt).toLocaleString('en-IN'),
-      ...fields.map(f => cell(row.responses?.[f._id]))
-    ])
-    const escape = v => `"${String(v ?? '').replace(/"/g, '""')}"`
-    const csv = [headers, ...body].map(r => r.map(escape).join(',')).join('\r\n')
-    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `${data.form.name.replace(/[^a-z0-9]+/gi, '_').toLowerCase()}_responses.csv`
-    a.click()
-    URL.revokeObjectURL(url)
+
+    const fetchAll = async () => {
+      const limit = 100
+      let page = 1
+      let all = []
+      let total = null
+      while (true) {
+        // Request pages until we've collected `total` rows
+        const res = await API.get(`/api/forms/${formId}/responses?page=${page}&limit=${limit}`)
+        const payload = res.data
+        total = payload.total
+        all = all.concat(payload.rows || [])
+        if (all.length >= total) break
+        page += 1
+      }
+      return { all, total }
+    }
+
+    ;(async () => {
+      try {
+        const { all } = await fetchAll()
+        const body = all.map((row, i) => [
+          i + 1,
+          new Date(row.submittedAt).toLocaleString('en-IN'),
+          ...fields.map(f => cell(row.responses?.[f._id]))
+        ])
+        const escape = v => `"${String(v ?? '').replace(/"/g, '""')}"`
+        const csv = [headers, ...body].map(r => r.map(escape).join(',')).join('\r\n')
+        const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' })
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `${data.form.name.replace(/[^a-z0-9]+/gi, '_').toLowerCase()}_responses.csv`
+        a.click()
+        URL.revokeObjectURL(url)
+      } catch (err) {
+        alert('Export failed: ' + (err.response?.data?.message || err.message || 'Unknown error'))
+      }
+    })()
   }
 
   if (loading && !data) {
