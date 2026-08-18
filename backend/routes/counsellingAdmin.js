@@ -449,6 +449,13 @@ router.get('/export', auth, requireWorkspace, async (req, res) => {
       .limit(5000)
       .lean();
 
+    // Debug: log the match and number of responses returned for export troubleshooting
+    try {
+      console.info('[EXPORT counselling] match=', JSON.stringify(match), 'count=', responses.length, 'workspace=', String(req.workspaceId));
+    } catch (e) {
+      console.info('[EXPORT counselling] count=', responses.length, 'workspace=', String(req.workspaceId));
+    }
+
     const ids = responses.map(r => r._id);
     const reports = await CounsellingReport.find({ response: { $in: ids } })
       .select('response status scores counsellorRecommendation careerFit')
@@ -459,6 +466,7 @@ router.get('/export', auth, requireWorkspace, async (req, res) => {
 
     res.json({
       questions: questions.map(q => ({ code: q.code, text: q.text })),
+      total: responses.length,
       rows: responses.map(r => {
         const rep = reportByResponse.get(String(r._id));
         const answers = {};
