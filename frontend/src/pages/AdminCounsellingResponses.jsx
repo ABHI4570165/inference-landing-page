@@ -91,6 +91,7 @@ export default function AdminCounsellingResponses() {
     if (filters.college) params.set('college', filters.college)
     if (filters.from) params.set('from', filters.from)
     if (filters.to) params.set('to', filters.to)
+    if (filters.status) params.set('status', filters.status)
     const res = await API.get(`/api/admin/counselling/export?${params}`)
     return res.data
   }

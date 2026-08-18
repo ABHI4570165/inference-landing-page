@@ -431,7 +431,12 @@ router.get('/dashboard', auth, requireWorkspace, async (req, res) => {
 // Returns JSON rows; the frontend renders CSV or a styled Excel workbook.
 router.get('/export', auth, requireWorkspace, async (req, res) => {
   try {
-    const match = { status: 'submitted', workspace: req.workspaceId };
+    // By default export across all statuses unless a specific `status` query
+    // param is provided (e.g. ?status=submitted or ?status=in_progress).
+    const match = { workspace: req.workspaceId };
+    if (req.query.status && ['submitted', 'in_progress'].includes(req.query.status)) {
+      match.status = req.query.status;
+    }
     if (req.query.college) match.college = String(req.query.college);
     if (DATE_RX.test(req.query.from || '') || DATE_RX.test(req.query.to || '')) {
       match.attendanceDate = {};
