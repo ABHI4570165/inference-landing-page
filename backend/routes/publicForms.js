@@ -63,7 +63,7 @@ router.get('/:publicSlug', async (req, res) => {
     // similarly-named institutions apart. Sorted alphabetically, case-insensitively.
     const colleges = collegeIds.length
       ? await College.find({ _id: { $in: collegeIds }, workspace: form.workspace })
-          .select('name location address').sort({ name: 1 }).collation({ locale: 'en' }).lean()
+          .select('name code location address').sort({ name: 1 }).collation({ locale: 'en' }).lean()
       : [];
     const collegeById = new Map(colleges.map(c => [String(c._id), c]));
 
@@ -72,7 +72,7 @@ router.get('/:publicSlug', async (req, res) => {
       const options = (selectedCollegeIds || [])
         .map(id => collegeById.get(String(id)))
         .filter(Boolean)
-        .map(c => ({ _id: String(c._id), name: c.name, location: c.location || '', address: c.address || '' }))
+        .map(c => ({ _id: String(c._id), name: c.name, code: c.code || '', location: c.location || '', address: c.address || '' }))
         .sort((a, b) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base' }));
       return { ...f, collegeOptions: options };
     });

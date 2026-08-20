@@ -35,10 +35,10 @@ router.get('/', async (req, res) => {
 // Admin: POST create college
 router.post('/', auth, requireWorkspace, async (req, res) => {
   try {
-    const { name, location, address } = req.body;
+    const { name, code, location, address } = req.body;
     if (!name || !String(name).trim()) return res.status(400).json({ message: 'College name is required' });
     // The model normalises name to UPPERCASE and collapses whitespace.
-    const college = await College.create({ name, location, address, workspace: req.workspaceId });
+    const college = await College.create({ name, code, location, address, workspace: req.workspaceId });
     res.status(201).json(college);
   } catch (err) {
     if (err.code === 11000) return res.status(400).json({ message: 'This college is already in the list' });
@@ -81,6 +81,7 @@ router.post('/bulk', auth, requireWorkspace, async (req, res) => {
       toInsert.push({
         workspace: req.workspaceId,
         name,
+        code: row?.code || '',
         location: row?.location || '',
         address: row?.address || ''
       });
@@ -111,9 +112,10 @@ router.post('/bulk', auth, requireWorkspace, async (req, res) => {
 // Admin: PUT update college
 router.put('/:id', auth, requireWorkspace, async (req, res) => {
   try {
-    const { name, location, address } = req.body;
+    const { name, code, location, address } = req.body;
     const update = {};
     if (name !== undefined)     update.name = name;         // setter uppercases
+    if (code !== undefined)     update.code = code;
     if (location !== undefined) update.location = location;
     if (address !== undefined)  update.address = address;
     const college = await College.findOneAndUpdate(

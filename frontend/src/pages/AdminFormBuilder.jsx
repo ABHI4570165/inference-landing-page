@@ -47,7 +47,8 @@ function CollegePicker({ field, colleges, onChange, disabled }) {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
-    return q ? colleges.filter(c => c.name.toLowerCase().includes(q)) : colleges
+    return q ? colleges.filter(c =>
+      c.name.toLowerCase().includes(q) || (c.code || '').toLowerCase().includes(q)) : colleges
   }, [colleges, search])
 
   function toggle(id) {
@@ -121,6 +122,7 @@ function CollegePicker({ field, colleges, onChange, disabled }) {
               <span className="min-w-0 flex-1">
                 <span className={`block text-[13.5px] truncate ${on ? 'text-brand-800 font-medium' : 'text-ink-700'}`}>
                   {c.name}
+                  {c.code && <span className="text-ink-400 font-normal"> · {c.code}</span>}
                 </span>
                 {(c.location || c.address) && (
                   <span className="block text-[11.5px] text-ink-400 truncate">

@@ -105,7 +105,8 @@ function Field({ field, value, onChange, slug }) {
       // against this form's selection and stores the real name.
       // A native <option> cannot hold rich markup, so name, location and
       // address are joined into one readable line.
-      const label = c => [c.name, c.location, c.address].filter(Boolean).join(' — ')
+      const label = c => [c.code ? `${c.name} (${c.code})` : c.name, c.location, c.address]
+        .filter(Boolean).join(' — ')
       return (
         <select {...common} value={value || ''} onChange={e => onChange(e.target.value)}>
           <option value="">Select college…</option>

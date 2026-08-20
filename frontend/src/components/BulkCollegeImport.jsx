@@ -12,24 +12,31 @@ import { IconClose, IconCheckCircle, IconBuilding, IconUpload, IconDownload, Ico
 // than a slow one. The server re-normalises everything and remains the
 // authority on duplicates.
 
-const SAMPLE = `RV College of Engineering, Bengaluru, Mysore Road
-BMS College of Engineering, Bengaluru, Bull Temple Road
-PES University, Bengaluru, 100 Feet Ring Road`
+const SAMPLE = `RV College of Engineering, 1RV, Bengaluru, Mysore Road
+BMS College of Engineering, 1BM, Bengaluru, Bull Temple Road
+PES University, 1PE, Bengaluru, 100 Feet Ring Road`
 
 const clean = v => String(v == null ? '' : v).trim().replace(/\s+/g, ' ')
 const upper = v => clean(v).toUpperCase()
 
 /* ── Text parsing ──────────────────────────────────────────────────
-   Split on tab first (spreadsheet paste), else comma. Everything after
-   the second separator is one address, so addresses containing commas
-   survive intact. */
+   Split on tab first (spreadsheet paste), else comma. Order is
+   name, code, location, address — everything after the third separator
+   is one address, so addresses containing commas survive intact.
+   Only the name is required; the rest may be left empty. The preview
+   table is what catches a list pasted in a different order. */
 function parseLine(line) {
   const raw = line.trim()
   if (!raw) return null
   const parts = raw.includes('\t') ? raw.split('\t') : raw.split(',')
   const name = clean(parts[0])
   if (!name) return null
-  return { name: name.toUpperCase(), location: clean(parts[1]), address: clean(parts.slice(2).join(', ')) }
+  return {
+    name: name.toUpperCase(),
+    code: upper(parts[1]),
+    location: clean(parts[2]),
+    address: clean(parts.slice(3).join(', '))
+  }
 }
 
 /* ── Spreadsheet parsing ───────────────────────────────────────────
@@ -39,12 +46,13 @@ function parseLine(line) {
    recognisable heading row falls back to positional reading. */
 const HEADER_ALIASES = {
   name:     ['college name', 'college', 'name', 'institution', 'institute', 'college/institution'],
+  code:     ['college code', 'code', 'clg code', 'college id', 'institution code', 'univ code'],
   location: ['location', 'city', 'place', 'town', 'district'],
   address:  ['address', 'full address', 'street', 'postal address']
 }
 
 function resolveColumns(headerCells) {
-  const map = { name: -1, location: -1, address: -1 }
+  const map = { name: -1, code: -1, location: -1, address: -1 }
   headerCells.forEach((raw, i) => {
     const h = clean(raw).toLowerCase()
     if (!h) return
@@ -77,7 +85,7 @@ async function parseWorkbook(file) {
 
   const cols = resolveColumns(rows[0] || [])
   const hasHeader = cols.name !== -1
-  const idx = hasHeader ? cols : { name: 0, location: 1, address: 2 }
+  const idx = hasHeader ? cols : { name: 0, code: 1, location: 2, address: 3 }
   const body = hasHeader ? rows.slice(1) : rows
 
   const out = []
@@ -86,6 +94,7 @@ async function parseWorkbook(file) {
     if (!name) continue
     out.push({
       name: name.toUpperCase(),
+      code: idx.code > -1 ? upper(cells[idx.code]) : '',
       location: idx.location > -1 ? clean(cells[idx.location]) : '',
       address: idx.address > -1 ? clean(cells[idx.address]) : ''
     })
@@ -101,6 +110,7 @@ async function downloadTemplate() {
   const ws = wb.addWorksheet('Colleges', { views: [{ state: 'frozen', ySplit: 1 }] })
   ws.columns = [
     { header: 'College Name', key: 'name', width: 46 },
+    { header: 'College Code', key: 'code', width: 16 },
     { header: 'Location', key: 'location', width: 18 },
     { header: 'Address', key: 'address', width: 62 }
   ]
@@ -111,9 +121,9 @@ async function downloadTemplate() {
   })
   ws.getRow(1).height = 24
   ;[
-    ['RV College of Engineering', 'Bengaluru', 'Mysore Road, RV Vidyaniketan Post, Bengaluru 560059'],
-    ['BMS College of Engineering', 'Bengaluru', 'Bull Temple Road, Basavanagudi, Bengaluru 560019'],
-    ['PES University', 'Bengaluru', '100 Feet Ring Road, BSK III Stage, Bengaluru 560085']
+    ['RV College of Engineering', '1RV', 'Bengaluru', 'Mysore Road, RV Vidyaniketan Post, Bengaluru 560059'],
+    ['BMS College of Engineering', '1BM', 'Bengaluru', 'Bull Temple Road, Basavanagudi, Bengaluru 560019'],
+    ['PES University', '1PE', 'Bengaluru', '100 Feet Ring Road, BSK III Stage, Bengaluru 560085']
   ].forEach(r => ws.addRow(r).eachCell(c => { c.alignment = { indent: 1 } }))
 
   const buf = await wb.xlsx.writeBuffer()
@@ -290,7 +300,7 @@ export default function BulkCollegeImport({ existing, onClose, onImported }) {
                       <>
                         <p className="text-[14px] font-medium text-ink-800">Choose an Excel file</p>
                         <p className="text-[12.5px] text-ink-400">
-                          .xlsx with columns College Name, Location, Address
+                          .xlsx with columns College Name, College Code, Location, Address
                         </p>
                       </>
                     )}
@@ -317,7 +327,8 @@ export default function BulkCollegeImport({ existing, onClose, onImported }) {
                     spellCheck="false"
                   />
                   <p className="form-hint">
-                    One per line, separated by a comma or a tab. Location and address are optional.
+                    One per line: name, code, location, address — separated by a comma or a tab.
+                    Only the name is required. Check the preview below before adding.
                   </p>
                 </>
               )}
@@ -331,12 +342,13 @@ export default function BulkCollegeImport({ existing, onClose, onImported }) {
                   <div className="border border-surface-200 rounded-lg overflow-hidden max-h-64 overflow-y-auto scroll-slim">
                     <table className="data-table">
                       <thead>
-                        <tr><th>College Name</th><th>Location</th><th>Address</th><th></th></tr>
+                        <tr><th>College Name</th><th>Code</th><th>Location</th><th>Address</th><th></th></tr>
                       </thead>
                       <tbody>
                         {parsed.slice(0, 200).map((r, i) => (
                           <tr key={i} className={r.duplicate ? 'opacity-45' : ''}>
                             <td className="font-medium">{r.name}</td>
+                            <td>{r.code || <span className="text-ink-300">—</span>}</td>
                             <td>{r.location || <span className="text-ink-300">—</span>}</td>
                             <td className="max-w-[220px]">
                               <span className="block truncate" title={r.address}>

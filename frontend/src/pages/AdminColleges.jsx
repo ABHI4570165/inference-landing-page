@@ -13,7 +13,7 @@ import BulkCollegeImport from '../components/BulkCollegeImport'
 export default function AdminColleges() {
   const [colleges, setColleges] = useState([])
   const [loading, setLoading] = useState(true)
-  const [form, setForm] = useState({ name: '', location: '', address: '' })
+  const [form, setForm] = useState({ name: '', code: '', location: '', address: '' })
   const [showBulk, setShowBulk] = useState(false)
   const [editId, setEditId] = useState(null)
   const [saving, setSaving] = useState(false)
@@ -33,14 +33,14 @@ export default function AdminColleges() {
 
   function startEdit(college) {
     setEditId(college._id)
-    setForm({ name: college.name, location: college.location || '', address: college.address || '' })
+    setForm({ name: college.name, code: college.code || '', location: college.location || '', address: college.address || '' })
     setError('')
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
   function cancelEdit() {
     setEditId(null)
-    setForm({ name: '', location: '', address: '' })
+    setForm({ name: '', code: '', location: '', address: '' })
     setError('')
   }
 
@@ -78,6 +78,7 @@ export default function AdminColleges() {
     const q = query.trim().toLowerCase()
     return q ? colleges.filter(c =>
       c.name.toLowerCase().includes(q) ||
+      (c.code || '').toLowerCase().includes(q) ||
       (c.location || '').toLowerCase().includes(q) ||
       (c.address || '').toLowerCase().includes(q)) : colleges
   }, [colleges, query])
@@ -109,6 +110,11 @@ export default function AdminColleges() {
               <label className="form-label">College Name <span className="text-red-500">*</span></label>
               <input className="form-input" value={form.name} placeholder="e.g. RV College of Engineering"
                 onChange={e => setForm(p => ({ ...p, name: e.target.value }))} />
+            </div>
+            <div>
+              <label className="form-label">College Code</label>
+              <input className="form-input" value={form.code} placeholder="e.g. 1RV"
+                onChange={e => setForm(p => ({ ...p, code: e.target.value }))} />
             </div>
             <div>
               <label className="form-label">Location</label>
@@ -184,7 +190,10 @@ export default function AdminColleges() {
                     <IconBuilding size={16} className="text-ink-400" />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="font-medium text-ink-800 text-[14px] truncate">{college.name}</p>
+                    <p className="font-medium text-ink-800 text-[14px] truncate">
+                      {college.name}
+                      {college.code && <span className="badge badge-neutral ml-2 align-middle">{college.code}</span>}
+                    </p>
                     <p className="text-[12px] text-ink-400 truncate">
                       {[college.location, college.address].filter(Boolean).join(' · ') || 'No location set'}
                     </p>
