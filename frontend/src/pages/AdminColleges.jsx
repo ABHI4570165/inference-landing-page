@@ -5,6 +5,7 @@ import AdminLayout from '../components/AdminLayout'
 import Spinner from '../components/Spinner'
 import { ADMIN_FORMS } from '../utils/routes'
 import { IconBuilding, IconSearch, IconEdit, IconTrash, IconPlus, IconClose, IconArrowRight } from '../components/Icons'
+import BulkCollegeImport from '../components/BulkCollegeImport'
 
 // The single source of truth for colleges in this workspace. The Form Builder's
 // College field reads this exact list — colleges are never typed into a form or
@@ -12,7 +13,8 @@ import { IconBuilding, IconSearch, IconEdit, IconTrash, IconPlus, IconClose, Ico
 export default function AdminColleges() {
   const [colleges, setColleges] = useState([])
   const [loading, setLoading] = useState(true)
-  const [form, setForm] = useState({ name: '', location: '' })
+  const [form, setForm] = useState({ name: '', location: '', address: '' })
+  const [showBulk, setShowBulk] = useState(false)
   const [editId, setEditId] = useState(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -31,14 +33,14 @@ export default function AdminColleges() {
 
   function startEdit(college) {
     setEditId(college._id)
-    setForm({ name: college.name, location: college.location || '' })
+    setForm({ name: college.name, location: college.location || '', address: college.address || '' })
     setError('')
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
   function cancelEdit() {
     setEditId(null)
-    setForm({ name: '', location: '' })
+    setForm({ name: '', location: '', address: '' })
     setError('')
   }
 
@@ -75,13 +77,20 @@ export default function AdminColleges() {
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase()
     return q ? colleges.filter(c =>
-      c.name.toLowerCase().includes(q) || (c.location || '').toLowerCase().includes(q)) : colleges
+      c.name.toLowerCase().includes(q) ||
+      (c.location || '').toLowerCase().includes(q) ||
+      (c.address || '').toLowerCase().includes(q)) : colleges
   }, [colleges, query])
 
   return (
     <AdminLayout
       title="Colleges"
       subtitle="The colleges available to this workspace. Forms pick from this list — they never define their own."
+      actions={
+        <button onClick={() => setShowBulk(true)} className="btn-secondary">
+          <IconPlus /> Import Many
+        </button>
+      }
     >
       <div className="grid grid-cols-1 lg:grid-cols-[360px_minmax(0,1fr)] gap-5 items-start">
         {/* Add / edit */}
@@ -105,6 +114,12 @@ export default function AdminColleges() {
               <label className="form-label">Location</label>
               <input className="form-input" value={form.location} placeholder="e.g. Bengaluru, Karnataka"
                 onChange={e => setForm(p => ({ ...p, location: e.target.value }))} />
+            </div>
+            <div>
+              <label className="form-label">Address</label>
+              <input className="form-input" value={form.address} placeholder="e.g. Mysore Road, RV Vidyaniketan Post"
+                onChange={e => setForm(p => ({ ...p, address: e.target.value }))} />
+              <p className="form-hint">Names are saved in capitals and listed alphabetically.</p>
             </div>
             {error && <p className="text-[13px] text-red-700 bg-red-50 border border-red-100 rounded-lg px-3 py-2.5">{error}</p>}
             <div className="flex gap-2.5">
@@ -170,7 +185,9 @@ export default function AdminColleges() {
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="font-medium text-ink-800 text-[14px] truncate">{college.name}</p>
-                    <p className="text-[12px] text-ink-400 truncate">{college.location || 'No location set'}</p>
+                    <p className="text-[12px] text-ink-400 truncate">
+                      {[college.location, college.address].filter(Boolean).join(' · ') || 'No location set'}
+                    </p>
                   </div>
                   <div className="flex items-center gap-0.5 sm:opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
                     <button onClick={() => startEdit(college)} title="Edit college"
@@ -195,6 +212,13 @@ export default function AdminColleges() {
           )}
         </div>
       </div>
+      {showBulk && (
+        <BulkCollegeImport
+          existing={colleges}
+          onClose={() => setShowBulk(false)}
+          onImported={list => setColleges(list)}
+        />
+      )}
     </AdminLayout>
   )
 }

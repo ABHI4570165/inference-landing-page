@@ -59,16 +59,23 @@ router.get('/:publicSlug', async (req, res) => {
     // Scoped to the form's own workspace as well as the selected ids —
     // a college from another company's workspace can never be rendered here
     // even if a stale id somehow survived on the field.
+    // Location and address travel with the name so the candidate can tell two
+    // similarly-named institutions apart. Sorted alphabetically, case-insensitively.
     const colleges = collegeIds.length
-      ? await College.find({ _id: { $in: collegeIds }, workspace: form.workspace }).select('name').sort({ name: 1 }).lean()
+      ? await College.find({ _id: { $in: collegeIds }, workspace: form.workspace })
+          .select('name location address').sort({ name: 1 }).collation({ locale: 'en' }).lean()
       : [];
-    const collegeById = new Map(colleges.map(c => [String(c._id), c.name]));
+    const collegeById = new Map(colleges.map(c => [String(c._id), c]));
 
-    const fields = form.fields.map(({ selectedCollegeIds, ...f }) => (
-      f.type === 'college'
-        ? { ...f, collegeOptions: (selectedCollegeIds || []).map(id => ({ _id: String(id), name: collegeById.get(String(id)) })).filter(c => c.name) }
-        : f
-    ));
+    const fields = form.fields.map(({ selectedCollegeIds, ...f }) => {
+      if (f.type !== 'college') return f;
+      const options = (selectedCollegeIds || [])
+        .map(id => collegeById.get(String(id)))
+        .filter(Boolean)
+        .map(c => ({ _id: String(c._id), name: c.name, location: c.location || '', address: c.address || '' }))
+        .sort((a, b) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base' }));
+      return { ...f, collegeOptions: options };
+    });
 
     const { workspace, ...publicForm } = form;
     res.json({ ...publicForm, fields });

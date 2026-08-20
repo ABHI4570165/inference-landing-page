@@ -122,7 +122,11 @@ function CollegePicker({ field, colleges, onChange, disabled }) {
                 <span className={`block text-[13.5px] truncate ${on ? 'text-brand-800 font-medium' : 'text-ink-700'}`}>
                   {c.name}
                 </span>
-                {c.location && <span className="block text-[11.5px] text-ink-400 truncate">{c.location}</span>}
+                {(c.location || c.address) && (
+                  <span className="block text-[11.5px] text-ink-400 truncate">
+                    {[c.location, c.address].filter(Boolean).join(' · ')}
+                  </span>
+                )}
               </span>
             </label>
           )
