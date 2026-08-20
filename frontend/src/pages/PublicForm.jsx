@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams } from 'react-router-dom'
 import API from '../utils/api'
 import Spinner from '../components/Spinner'
@@ -19,6 +19,71 @@ import { IconCheckCircle, IconClose } from '../components/Icons'
 // Fields that read better on their own row; everything else pairs up two-per-
 // row on wider screens.
 const FULL_WIDTH_TYPES = new Set(['textarea', 'checkbox', 'radio', 'file'])
+
+// ── Searchable college dropdown ────────────────────────────────────────────────
+function CollegeSelect({ colleges, value, onChange }) {
+  const [query, setQuery] = useState('')
+  const [open, setOpen] = useState(false)
+  const ref = useRef()
+
+  const options = colleges.map(c => ({
+    _id: c._id,
+    name: [c.code ? `${c.name} (${c.code})` : c.name, c.location, c.address].filter(Boolean).join(' — ')
+  }))
+  const filtered = options.filter(o => o.name.toLowerCase().includes(query.toLowerCase()))
+
+  useEffect(() => {
+    function handler(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  function select(college) { onChange(college._id); setQuery(college.name); setOpen(false) }
+  useEffect(() => {
+    const selected = colleges.find(c => c._id === value)
+    setQuery(selected ? [selected.code ? `${selected.name} (${selected.code})` : selected.name, selected.location, selected.address].filter(Boolean).join(' — ') : '')
+  }, [value, colleges])
+
+  return (
+    <div ref={ref} className="relative">
+      <input
+        type="text"
+        className="form-input w-full pr-8"
+        placeholder="Type to search your college…"
+        value={query}
+        onChange={e => { setQuery(e.target.value); setOpen(true); if (!e.target.value) onChange('') }}
+        onFocus={() => setOpen(true)}
+        autoComplete="off"
+      />
+      <span className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400">
+        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </span>
+      {open && (
+        <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg text-sm overflow-hidden">
+          {filtered.length > 0 && (
+            <ul className="max-h-48 overflow-y-auto">
+              {filtered.map(opt => (
+                <li
+                  key={opt._id}
+                  onMouseDown={() => select(opt)}
+                  className={`px-4 py-2 cursor-pointer hover:bg-brand-50 hover:text-brand-700
+                    ${value === opt._id ? 'bg-brand-50 text-brand-700 font-medium' : 'text-gray-700'}`}
+                >
+                  {opt.name}
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="px-4 py-2.5 bg-amber-50 border-t border-amber-100 text-amber-800 text-xs">
+            🏫 College not listed? Please contact your <strong>Placement Officer</strong> to get your college added.
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
 
 // Uploads the chosen file immediately and stores the descriptor the server
 // returns as this field's value. Previously only the filename was captured and
@@ -101,18 +166,8 @@ function Field({ field, value, onChange, slug }) {
           </p>
         )
       }
-      // The value submitted is the college's _id; the server re-verifies it
-      // against this form's selection and stores the real name.
-      // A native <option> cannot hold rich markup, so name, location and
-      // address are joined into one readable line.
-      const label = c => [c.code ? `${c.name} (${c.code})` : c.name, c.location, c.address]
-        .filter(Boolean).join(' — ')
-      return (
-        <select {...common} value={value || ''} onChange={e => onChange(e.target.value)}>
-          <option value="">Select college…</option>
-          {options.map(c => <option key={c._id} value={c._id}>{label(c)}</option>)}
-        </select>
-      )
+      // Use searchable dropdown for 145 colleges
+      return <CollegeSelect colleges={options} value={value || ''} onChange={onChange} />
     }
     case 'radio':
       return (
