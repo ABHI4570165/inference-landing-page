@@ -21,6 +21,9 @@ const ALLOWED_ROLES = [
   'Sales Executive (Inside Sales / Junior Sales Track)'
 ];
 
+// The intake channels pre-redesign builds still filter by (see GET /).
+const LEGACY_SOURCES = ['official_college', 'instagram', 'missed_test'];
+
 // Cloudinary raw files often come back as octet-stream; map by extension
 const MIME_BY_EXT = {
   pdf:  'application/pdf',
@@ -278,6 +281,19 @@ router.get('/', auth, requireWorkspace, async (req, res) => {
       conditions.push({ form: new mongoose.Types.ObjectId(formId) });
     }
 
+    // Pre-redesign builds filter their category tabs by `source` instead, which
+    // the current UI never sends. Honoured only when present, so current builds
+    // are unaffected — without this the old tabs silently show everything.
+    const source = req.query.source?.trim() || '';
+    if (LEGACY_SOURCES.includes(source)) {
+      // Legacy documents have no `source` field — treat them as official_college
+      conditions.push(
+        source === 'official_college'
+          ? { source: { $nin: ['instagram', 'missed_test'] } }
+          : { source }
+      );
+    }
+
     // College dropdown sends an exact value from GET /colleges
     if (college) {
       conditions.push({ college });
@@ -350,6 +366,72 @@ router.get('/:id/resume', auth, requireWorkspace, async (req, res) => {
     res.send(buf);
   } catch (err) {
     console.error('[GET /api/students/:id/resume]', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// ── GET /api/students/colleges — distinct college names (admin only) ──────────
+// Restored for frontend builds deployed before the Applications redesign,
+// which populate their college filter from here. Unused by the current UI
+// (it reads /api/colleges), so re-adding it changes nothing for current
+// builds. MUST stay declared before GET /:id or that route swallows it.
+router.get('/colleges', auth, requireWorkspace, async (req, res) => {
+  try {
+    const colleges = await Student.distinct('college', { workspace: req.workspaceId });
+    res.json(
+      colleges
+        .filter(c => typeof c === 'string' && c.trim())
+        .sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' }))
+    );
+  } catch (err) {
+    console.error('[GET /api/students/colleges]', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// ── GET /api/students/stats — dashboard statistics (admin only) ───────────────
+// Also restored for pre-redesign builds, whose dashboard reads these counts.
+// Scoped to the workspace, unlike the original global version — for a legacy
+// client that resolves to the default-intake workspace, which holds all the
+// pre-workspace data those builds were showing anyway.
+// MUST stay declared before GET /:id.
+router.get('/stats', auth, requireWorkspace, async (req, res) => {
+  try {
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    const scope = { workspace: req.workspaceId };
+
+    const [total, instagram, missedTest, today, topColleges, topInstagramColleges] = await Promise.all([
+      Student.countDocuments(scope),
+      Student.countDocuments({ ...scope, source: 'instagram' }),
+      Student.countDocuments({ ...scope, source: 'missed_test' }),
+      Student.countDocuments({ ...scope, createdAt: { $gte: startOfToday } }),
+      Student.aggregate([
+        { $match: scope },
+        { $group: { _id: '$college', count: { $sum: 1 } } },
+        { $sort: { count: -1, _id: 1 } },
+        { $project: { _id: 0, college: '$_id', count: 1 } }
+      ]),
+      Student.aggregate([
+        { $match: { ...scope, source: 'instagram' } },
+        { $group: { _id: '$college', count: { $sum: 1 } } },
+        { $sort: { count: -1, _id: 1 } },
+        { $project: { _id: 0, college: '$_id', count: 1 } }
+      ])
+    ]);
+
+    // Legacy documents without `source` count as official_college
+    res.json({
+      total,
+      officialCollege: total - instagram - missedTest,
+      instagram,
+      missedTest,
+      today,
+      topColleges,
+      topInstagramColleges
+    });
+  } catch (err) {
+    console.error('[GET /api/students/stats]', err);
     res.status(500).json({ message: 'Server error' });
   }
 });

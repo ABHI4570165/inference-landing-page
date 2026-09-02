@@ -16,11 +16,34 @@ const Workspace = require('../models/Workspace');
 module.exports = async function requireWorkspace(req, res, next) {
   const id = req.headers['x-workspace-id'];
 
-  if (!id || !mongoose.isValidObjectId(id)) {
-    return res.status(400).json({ message: 'Workspace context required', code: 'NO_WORKSPACE' });
-  }
-
   try {
+    // ── Legacy clients ──
+    // Frontend builds deployed BEFORE multi-workspace support existed know
+    // nothing about workspaces and send no header at all, so every admin
+    // screen in them broke with a 400. They are treated exactly like the
+    // original un-tokened public links (see routes/counselling.js,
+    // reception.js, colleges.js): resolve to the default-intake workspace —
+    // the same one backfillWorkspaces.js assigned all pre-workspace data to,
+    // which is precisely the data those builds used to show.
+    //
+    // This only affects requests that carry NO header, i.e. requests that
+    // could only have failed before. Current builds always send the header
+    // (frontend/src/utils/api.js) and are routed exactly as they were.
+    if (!id) {
+      const intake = await Workspace.findOne({ isDefaultIntake: true }).lean();
+      if (!intake) {
+        return res.status(400).json({ message: 'Workspace context required', code: 'NO_WORKSPACE' });
+      }
+      req.workspace = intake;
+      req.workspaceId = intake._id;
+      req.legacyWorkspaceFallback = true;
+      return next();
+    }
+
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ message: 'Workspace context required', code: 'NO_WORKSPACE' });
+    }
+
     const workspace = await Workspace.findById(id).lean();
     if (!workspace) {
       console.warn(
