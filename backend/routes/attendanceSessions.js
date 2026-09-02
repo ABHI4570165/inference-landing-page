@@ -6,6 +6,7 @@ const AttendanceSession = require('../models/AttendanceSession');
 const Student = require('../models/Student');
 const AuditLog = require('../models/AuditLog');
 const { syncSessionFromAttendance } = require('../services/attendanceSessions');
+const { collegeCondition } = require('../utils/collegeMatch');
 
 const DATE_RX = /^\d{4}-\d{2}-\d{2}$/;
 const VALID_STATUS = ['Present', 'Absent'];
@@ -180,8 +181,9 @@ router.get('/:id', auth, requireWorkspace, async (req, res) => {
       .lean();
     if (!session) return res.status(404).json({ message: 'Session not found' });
 
-    // Include the full roster so unmarked students are visible/editable too
-    const roster = await Student.find({ college: session.college, workspace: req.workspaceId })
+    // Include the full roster so unmarked students are visible/editable too.
+    // Spelling-insensitive for the same reason as the daily roster.
+    const roster = await Student.find({ college: collegeCondition(session.college), workspace: req.workspaceId })
       .select('name email phone course customCourse branch customBranch')
       .sort({ name: 1 })
       .lean();
@@ -214,7 +216,9 @@ router.patch('/:id', auth, requireWorkspace, async (req, res) => {
 
     if (records.length) {
       const ids = [...new Set(records.map(r => r.studentId).filter(Boolean))];
-      const students = await Student.find({ _id: { $in: ids }, college, workspace: req.workspaceId }).select('_id').lean();
+      // Same spelling-insensitive match, or saving would silently discard the
+      // marks for exactly the students the roster just started showing.
+      const students = await Student.find({ _id: { $in: ids }, college: collegeCondition(college), workspace: req.workspaceId }).select('_id').lean();
       const validIds = new Set(students.map(s => String(s._id)));
 
       const ops = [];

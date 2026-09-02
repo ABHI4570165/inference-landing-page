@@ -83,6 +83,19 @@ function buildCandidateSummary(fields, responses) {
   summary.phone   = firstOfType(['phone']);
   summary.college = firstOfType(['college']);
 
+  // Older custom forms may have collected the college as a normal dropdown,
+  // radio, or text field before the dedicated College field existed. Recover
+  // that value from an explicit label so the candidate still reaches the
+  // college-based Attendance roster.
+  if (!summary.college) {
+    const collegeField = (fields || []).find(f =>
+      ['dropdown', 'radio', 'text', 'textarea'].includes(f.type) &&
+      /\b(college|institution|university)\b/i.test(String(f.label || '')) &&
+      readable(responses[String(f._id)]).trim()
+    );
+    if (collegeField) summary.college = readable(responses[String(collegeField._id)]).trim();
+  }
+
   // A phone number is frequently collected through a plain 'number' or 'text'
   // field ("Contact Number", "Mobile", whatever the admin called it) rather
   // than the dedicated 'phone' type. Without a phone the candidate cannot be
@@ -142,8 +155,21 @@ function buildCandidateSummary(fields, responses) {
 // submission attaches to that existing candidate. One person stays one
 // candidate no matter how many forms they fill in.
 const Student = require('../models/Student');
+const College = require('../models/College');
+const { sameCollege } = require('../utils/collegeMatch');
 
 const last10 = v => String(v || '').replace(/\D/g, '').slice(-10);
+
+// Snap a free-text college answer onto the managed Colleges list's spelling
+// when it is plainly the same institution. Without this the same college
+// reaches Attendance as two picker entries ("JSS COLLEGE" and "jss college")
+// and can end up with two separate sessions for one day.
+async function canonicalCollege(workspaceId, college) {
+  if (!college) return college;
+  const rows = await College.find({ workspace: workspaceId }).select('name').lean();
+  const hit = rows.find(c => sameCollege(c.name, college));
+  return hit ? hit.name : college;
+}
 
 async function findExistingCandidate(workspaceId, { email, phone }) {
   const digits = last10(phone);
@@ -169,7 +195,7 @@ async function linkSubmissionToCandidate({ workspaceId, formId, candidate }) {
   const name = (candidate?.name || '').trim();
   const email = (candidate?.email || '').trim().toLowerCase();
   const phone = (candidate?.phone || '').trim();
-  const college = (candidate?.college || '').trim();
+  const college = await canonicalCollege(workspaceId, (candidate?.college || '').trim());
 
   // Needs a name plus at least one way to be found again at the reception desk
   // (phone) or the counselling screen (email).
@@ -180,7 +206,27 @@ async function linkSubmissionToCandidate({ workspaceId, formId, candidate }) {
     // Fill only genuinely missing details — never overwrite what the candidate
     // already supplied through the full intake application.
     const patch = { hasFormSubmission: true };
-    if (!existing.college && college) patch.college = college;
+
+    // College is the exception: it decides which college's Attendance roster
+    // the candidate appears on, so the newest application wins. Filling it
+    // only when missing meant a candidate who re-applied — because their
+    // college had just been added to the managed list, or because the first
+    // answer was wrong — kept the stale name and silently never showed up on
+    // the roster for the college they actually selected.
+    // Still guarded by `college` being non-empty, so a form that does not ask
+    // for a college can never blank out a good value.
+    if (college && college !== existing.college) {
+      patch.college = college;
+      if (existing.college) {
+        console.info(
+          `[applications] college updated for candidate ${existing._id} — ` +
+          `${JSON.stringify(existing.college)} -> ${JSON.stringify(college)}`
+        );
+      }
+    }
+
+    // Email and phone are how this candidate was matched in the first place;
+    // they keep the fill-only-when-missing rule.
     if (!existing.email && email) patch.email = email;
     if (!existing.phone && phone) patch.phone = phone;
     await Student.updateOne({ _id: existing._id }, { $set: patch });

@@ -5,6 +5,7 @@ const Student    = require('../models/Student');
 const College    = require('../models/College');
 const Attendance = require('../models/Attendance');
 const { syncSessionFromAttendance } = require('../services/attendanceSessions');
+const { collegeCondition, normaliseCollege } = require('../utils/collegeMatch');
 
 const VALID_STATUS = ['Present', 'Absent'];
 const DATE_RX = /^\d{4}-\d{2}-\d{2}$/;
@@ -40,8 +41,12 @@ router.get('/colleges', auth, requireWorkspace, async (req, res) => {
     const byKey = new Map();
     const add = name => {
       if (typeof name !== 'string' || !name.trim()) return;
-      const key = name.trim().toLowerCase();
-      if (!byKey.has(key)) byKey.set(key, name.trim());
+      // Same normalisation the roster matches on, so one institution is one
+      // entry here — otherwise names differing only by inner spacing show up
+      // as two picker options that both list the same students.
+      const key = normaliseCollege(name);
+      if (!key) return;
+      if (!byKey.has(key)) byKey.set(key, name.trim().replace(/\s+/g, ' '));
     };
 
     managed.forEach(c => add(c.name));       // authoritative list, added first
@@ -146,7 +151,10 @@ router.get('/', auth, requireWorkspace, async (req, res) => {
       return res.status(400).json({ message: 'A valid date (YYYY-MM-DD) is required' });
     }
 
-    const students = await Student.find({ college, workspace: req.workspaceId })
+    // Match however the candidate's college happens to be spelled — the picker
+    // shows one spelling per institution, so a byte-exact match would hide
+    // every student whose form stored a different case/spacing variant.
+    const students = await Student.find({ college: collegeCondition(college), workspace: req.workspaceId })
       .select(STUDENT_FIELDS)
       .sort({ name: 1 })
       .lean();
