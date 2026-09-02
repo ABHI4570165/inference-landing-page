@@ -149,6 +149,7 @@ app.use('/api/counselling/verify', counsellingVerifyLimiter);
 app.use('/api/auth',        require('./routes/auth'));
 app.use('/api/students',    require('./routes/students'));
 app.use('/api/colleges',    require('./routes/colleges'));
+app.use('/api/college-categories', require('./routes/collegeCategories'));
 app.use('/api/attendance',  require('./routes/attendance'));
 app.use('/api/attendance-sessions', require('./routes/attendanceSessions'));
 app.use('/api/counselling', require('./routes/counselling'));
@@ -180,6 +181,7 @@ mongoose.connect(process.env.MONGODB_URI)
     await require('./seedCounsellingQuestions')();
     await require('./backfillReceptionCheckins')();
     await require('./backfillWorkspaces')();
+    await require('./backfillCollegeCategories')();
     await require('./backfillApplicationForms')();
     // Any report still marked 'generating' belongs to a previous process that
     // is no longer running — release it so it can be regenerated.

@@ -6,6 +6,7 @@ const Form = require('../models/Form');
 const FormSubmission = require('../models/FormSubmission');
 const Student = require('../models/Student');
 const College = require('../models/College');
+const CollegeCategory = require('../models/CollegeCategory');
 const { generatePublicToken } = require('../utils/publicToken');
 
 const VALID_STATUS = ['Active', 'Inactive'];
@@ -66,6 +67,8 @@ function cleanFields(rawFields, existingIds = new Set()) {
         selectedCollegeIds: Array.isArray(f.selectedCollegeIds)
           ? f.selectedCollegeIds.filter(id => mongoose.isValidObjectId(id))
           : [],
+        collegeCategory: mongoose.isValidObjectId(f.collegeCategory) ? f.collegeCategory : null,
+        allowCustomCollege: !!f.allowCustomCollege,
         order: Number.isFinite(f.order) ? f.order : i
       };
     })
@@ -77,17 +80,47 @@ function cleanFields(rawFields, existingIds = new Set()) {
 // actually exist AND belong to this workspace before being saved, so a
 // tampered request can never wire a form to another company's colleges.
 async function validateCollegeSelections(fields, workspaceId) {
-  const allIds = [...new Set(
-    fields.filter(f => f.type === 'college').flatMap(f => f.selectedCollegeIds.map(String))
-  )];
-  if (!allIds.length) return fields;
+  const collegeFields = fields.filter(f => f.type === 'college');
+  if (!collegeFields.length) return fields;
 
-  const valid = await College.find({ _id: { $in: allIds }, workspace: workspaceId }).select('_id').lean();
-  const validSet = new Set(valid.map(c => String(c._id)));
+  // The chosen FOLDER is re-verified the same way as the ids — a tampered
+  // request must not be able to point a field at another company's folder.
+  const categoryIds = [...new Set(collegeFields.map(f => f.collegeCategory).filter(Boolean).map(String))];
+  const validCategories = categoryIds.length
+    ? await CollegeCategory.find({ _id: { $in: categoryIds }, workspace: workspaceId }).select('_id').lean()
+    : [];
+  const categorySet = new Set(validCategories.map(c => String(c._id)));
 
-  return fields.map(f => f.type === 'college'
-    ? { ...f, selectedCollegeIds: f.selectedCollegeIds.filter(id => validSet.has(String(id))) }
-    : f);
+  const allIds = [...new Set(collegeFields.flatMap(f => f.selectedCollegeIds.map(String)))];
+  const valid = allIds.length
+    ? await College.find({ _id: { $in: allIds }, workspace: workspaceId }).select('_id category').lean()
+    : [];
+  const categoryByCollege = new Map(valid.map(c => [String(c._id), String(c.category)]));
+
+  return fields.map(f => {
+    if (f.type !== 'college') return f;
+    const category = f.collegeCategory && categorySet.has(String(f.collegeCategory))
+      ? f.collegeCategory
+      : null;
+    return {
+      ...f,
+      collegeCategory: category,
+      // Keep only colleges that exist in this workspace and — once a folder is
+      // chosen — actually live in it, so a field can never quietly offer a
+      // college from a folder it no longer points at.
+      selectedCollegeIds: f.selectedCollegeIds.filter(id => {
+        const owner = categoryByCollege.get(String(id));
+        if (owner === undefined) return false;
+        return category ? owner === String(category) : true;
+      }),
+      // Deliberately NOT gated on a folder being chosen. Letting candidates add
+      // a missing college is a separate decision from how the list is organised,
+      // and tying the two meant an admin who ticked the box on a field with no
+      // folder had it silently switched back off. Without a folder the addition
+      // lands in the workspace's default one (utils/collegeFolders.js).
+      allowCustomCollege: !!f.allowCustomCollege
+    };
+  });
 }
 
 // ── GET /api/forms — forms in the active workspace ──────────────────────────

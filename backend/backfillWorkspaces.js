@@ -92,11 +92,12 @@ module.exports = async function backfillWorkspaces() {
       console.error('[backfillWorkspaces] AttendanceSession index:', err.message));
 
     // College previously had a GLOBAL unique index on `name` — that would
-    // block two different companies from both recruiting from, say, "SRM",
-    // so it's replaced with a per-workspace one.
+    // block two different companies from both recruiting from, say, "SRM".
+    // The replacement index is created by backfillCollegeCategories.js, which
+    // runs straight after this one and scopes it to the college's FOLDER as
+    // well as its workspace. Creating a { workspace, name } index here too
+    // would immediately be dropped there, so this only removes the old one.
     await College.collection.dropIndex('name_1').catch(() => {});
-    await College.collection.createIndex({ workspace: 1, name: 1 }, { unique: true }).catch(err =>
-      console.error('[backfillWorkspaces] College index:', err.message));
   } catch (err) {
     console.error('[backfillWorkspaces] Migration error:', err);
   }

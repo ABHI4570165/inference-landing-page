@@ -14,6 +14,17 @@ const fieldSchema = new mongoose.Schema({
   // References the College collection; never stores college names here, so
   // there is exactly one source of truth for what a college is called.
   selectedCollegeIds: { type: [mongoose.Schema.Types.ObjectId], ref: 'College', default: [] },
+
+  // Which college FOLDER this field draws from — an MBA form points at the
+  // "MBA Colleges" folder and can therefore never offer an engineering
+  // college. Null on fields built before folders existed; those keep their
+  // explicit selectedCollegeIds and behave exactly as they did.
+  collegeCategory: { type: mongoose.Schema.Types.ObjectId, ref: 'CollegeCategory', default: null },
+
+  // When true, a candidate whose college is genuinely missing may add it from
+  // the public form. The new college lands in this field's folder flagged for
+  // review, and becomes a normal option from then on.
+  allowCustomCollege: { type: Boolean, default: false },
   order:       { type: Number, default: 0 }
 }, { _id: true });
 

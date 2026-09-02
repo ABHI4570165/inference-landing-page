@@ -1,9 +1,12 @@
 const router = require('express').Router();
 const mongoose = require('mongoose');
 const College = require('../models/College');
+const CollegeCategory = require('../models/CollegeCategory');
 const Workspace = require('../models/Workspace');
 const auth = require('../config/auth');
 const requireWorkspace = require('../middleware/workspace');
+
+const { resolveCategory } = require('../utils/collegeFolders');
 
 // Public: GET all colleges. Used by both the public application forms (no
 // admin session — falls back to the default intake workspace) and the admin
@@ -24,7 +27,15 @@ router.get('/', async (req, res) => {
     }
     if (!workspaceId) return res.json([]);
 
-    const colleges = await College.find({ workspace: workspaceId })
+    // ?category=<id> narrows to one folder; omitted returns the whole
+    // workspace so existing callers (the attendance picker, older builds)
+    // behave exactly as before.
+    const filter = { workspace: workspaceId };
+    if (req.query.category && mongoose.isValidObjectId(req.query.category)) {
+      filter.category = req.query.category;
+    }
+
+    const colleges = await College.find(filter)
       .sort({ name: 1 }).collation({ locale: 'en' });
     res.json(colleges);
   } catch {
@@ -35,13 +46,21 @@ router.get('/', async (req, res) => {
 // Admin: POST create college
 router.post('/', auth, requireWorkspace, async (req, res) => {
   try {
-    const { name, code, location, address } = req.body;
+    const { name, code, location, address, category } = req.body;
     if (!name || !String(name).trim()) return res.status(400).json({ message: 'College name is required' });
+
+    const resolved = await resolveCategory(req.workspaceId, category);
+    if (resolved.error) return res.status(400).json({ message: resolved.error });
+
     // The model normalises name to UPPERCASE and collapses whitespace.
-    const college = await College.create({ name, code, location, address, workspace: req.workspaceId });
+    const college = await College.create({
+      name, code, location, address,
+      workspace: req.workspaceId,
+      category: resolved.category._id
+    });
     res.status(201).json(college);
   } catch (err) {
-    if (err.code === 11000) return res.status(400).json({ message: 'This college is already in the list' });
+    if (err.code === 11000) return res.status(400).json({ message: 'This college is already in this folder' });
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -58,12 +77,20 @@ router.post('/bulk', auth, requireWorkspace, async (req, res) => {
     if (!rows.length) return res.status(400).json({ message: 'No colleges to add' });
     if (rows.length > 1000) return res.status(400).json({ message: 'Please add at most 1000 colleges at a time' });
 
+    // Imports target ONE folder — that is the whole point of importing an
+    // "MBA Colleges" spreadsheet — so duplicate detection is scoped to that
+    // folder too. The same college may legitimately already exist in a
+    // different folder and must still import here.
+    const resolved = await resolveCategory(req.workspaceId, req.body?.category);
+    if (resolved.error) return res.status(400).json({ message: resolved.error });
+    const categoryId = resolved.category._id;
+
     // Existing colleges are left exactly as they are — including their original
     // casing. New entries arrive UPPERCASE, so the "already present" check
     // compares case-insensitively; otherwise importing "RV COLLEGE" alongside an
     // existing "RV College" would create a second entry for one institution.
     const existing = new Set(
-      (await College.find({ workspace: req.workspaceId }).select('name').lean())
+      (await College.find({ workspace: req.workspaceId, category: categoryId }).select('name').lean())
         .map(c => String(c.name).trim().replace(/\s+/g, ' ').toUpperCase())
     );
 
@@ -80,6 +107,7 @@ router.post('/bulk', auth, requireWorkspace, async (req, res) => {
       seen.add(name);
       toInsert.push({
         workspace: req.workspaceId,
+        category: categoryId,
         name,
         code: row?.code || '',
         location: row?.location || '',
@@ -93,7 +121,7 @@ router.post('/bulk', auth, requireWorkspace, async (req, res) => {
       created = await College.insertMany(toInsert, { ordered: false }).catch(err => err.insertedDocs || []);
     }
 
-    const all = await College.find({ workspace: req.workspaceId })
+    const all = await College.find({ workspace: req.workspaceId, category: categoryId })
       .sort({ name: 1 }).collation({ locale: 'en' }).lean();
 
     res.status(201).json({
@@ -101,6 +129,7 @@ router.post('/bulk', auth, requireWorkspace, async (req, res) => {
       skipped: skipped.length,
       invalid: invalid.length,
       skippedNames: skipped.slice(0, 25),
+      category: String(categoryId),
       colleges: all
     });
   } catch (err) {
@@ -112,18 +141,29 @@ router.post('/bulk', auth, requireWorkspace, async (req, res) => {
 // Admin: PUT update college
 router.put('/:id', auth, requireWorkspace, async (req, res) => {
   try {
-    const { name, code, location, address } = req.body;
+    const { name, code, location, address, category, reviewed } = req.body;
     const update = {};
     if (name !== undefined)     update.name = name;         // setter uppercases
     if (code !== undefined)     update.code = code;
     if (location !== undefined) update.location = location;
     if (address !== undefined)  update.address = address;
+    // Approving a candidate-submitted college clears its review flag; moving it
+    // to another folder is how an admin files a stray entry correctly.
+    if (reviewed !== undefined)  update.reviewed = !!reviewed;
+    if (category !== undefined) {
+      const resolved = await resolveCategory(req.workspaceId, category);
+      if (resolved.error) return res.status(400).json({ message: resolved.error });
+      update.category = resolved.category._id;
+    }
+
     const college = await College.findOneAndUpdate(
       { _id: req.params.id, workspace: req.workspaceId }, update, { new: true, runValidators: true }
     );
     if (!college) return res.status(404).json({ message: 'College not found' });
     res.json(college);
-  } catch {
+  } catch (err) {
+    if (err.code === 11000) return res.status(400).json({ message: 'That folder already has a college with this name' });
+    console.error('[PUT /api/colleges/:id]', err);
     res.status(500).json({ message: 'Server error' });
   }
 });

@@ -41,46 +41,143 @@ const tmpKey = () => `tmp_${++tmpKeySeq}`
 // Searchable, multi-select list of the workspace's EXISTING colleges. Stores
 // college _ids on the field — never names — so renaming a college in
 // Workspace → Colleges is reflected everywhere with no data migration.
-function CollegePicker({ field, colleges, onChange, disabled }) {
+function CollegePicker({ field, colleges, categories, onChange, disabled }) {
   const [search, setSearch] = useState('')
   const selected = useMemo(() => new Set((field.selectedCollegeIds || []).map(String)), [field.selectedCollegeIds])
 
+  // A field draws from ONE folder. Until one is chosen there is nothing to
+  // tick, and once chosen only that folder's colleges are offered - which is
+  // what stops an MBA form from listing engineering colleges.
+  const categoryId = field.collegeCategory ? String(field.collegeCategory) : ''
+  const inCategory = useMemo(
+    () => colleges.filter(c => String(c.category) === categoryId),
+    [colleges, categoryId]
+  )
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
-    return q ? colleges.filter(c =>
-      c.name.toLowerCase().includes(q) || (c.code || '').toLowerCase().includes(q)) : colleges
-  }, [colleges, search])
+    return q ? inCategory.filter(c =>
+      c.name.toLowerCase().includes(q) || (c.code || '').toLowerCase().includes(q)) : inCategory
+  }, [inCategory, search])
+
+  // Switching folder clears a selection that belonged to the old one, so the
+  // field can never keep offering colleges from a folder it no longer uses.
+  function pickCategory(id) {
+    onChange({
+      ...field,
+      collegeCategory: id || null,
+      selectedCollegeIds: [],
+      allowCustomCollege: id ? field.allowCustomCollege : false
+    })
+  }
+
+  const folderChooser = (
+    <div className="mb-3">
+      <label className="form-label">College Folder <span className="text-red-500">*</span></label>
+      <select className="form-input" value={categoryId} disabled={disabled}
+        onChange={e => pickCategory(e.target.value)}>
+        <option value="">Choose a folder...</option>
+        {categories.map(c => (
+          <option key={c._id} value={c._id}>{c.name} ({c.collegeCount || 0})</option>
+        ))}
+      </select>
+      <p className="form-hint">Candidates only ever see colleges from this folder.</p>
+    </div>
+  )
+
+  if (categories.length === 0) {
+    return (
+      <div className="rounded-xl border border-dashed border-surface-300 bg-surface-50 p-5 text-center">
+        <div className="w-10 h-10 rounded-xl bg-white ring-1 ring-surface-200 flex items-center justify-center mx-auto mb-3">
+          <IconBuilding size={19} className="text-ink-400" />
+        </div>
+        <p className="text-[13px] font-medium text-ink-700">No college folders yet</p>
+        <p className="text-[12.5px] text-ink-400 mt-1 mb-3.5">
+          Create a folder such as &ldquo;Engineering Colleges&rdquo;, then add colleges to it.
+        </p>
+        <Link to={ADMIN_COLLEGES} className="btn-secondary !py-2 text-[13px]">
+          Set up colleges <IconArrowRight />
+        </Link>
+      </div>
+    )
+  }
+
+  // The "candidates may add their own" choice is independent of how the list is
+  // organised, so it is offered whether or not a folder has been chosen. Tying
+  // it to a folder meant an admin could tick it and have it silently discarded.
+  const allowAddToggle = (
+    <label className="mt-3 flex items-start gap-2.5 rounded-lg border border-surface-200 bg-surface-50 px-3.5 py-3 cursor-pointer">
+      <input type="checkbox" className="mt-0.5 flex-shrink-0"
+        checked={!!field.allowCustomCollege}
+        onChange={e => onChange({ ...field, allowCustomCollege: e.target.checked })} />
+      <span>
+        <span className="block text-[13px] font-medium text-ink-700">Let candidates add a missing college</span>
+        <span className="block text-[12px] text-ink-400 mt-0.5">
+          If their college is not listed they can add it themselves, instead of picking a
+          wrong-but-close entry. It arrives flagged for your review in{' '}
+          {categoryId
+            ? <>&ldquo;{categories.find(c => String(c._id) === categoryId)?.name}&rdquo;</>
+            : <>this workspace&rsquo;s default folder</>}.
+          Names are saved in capitals, and a college already on the list cannot be added twice.
+        </span>
+      </span>
+    </label>
+  )
+
+  if (!categoryId) {
+    const ticked = (field.selectedCollegeIds || []).length
+    return (
+      <div className={disabled ? 'opacity-60 pointer-events-none' : ''}>
+        {folderChooser}
+        <div className="rounded-lg bg-amber-50 border border-amber-200 px-3.5 py-3">
+          <p className="text-[12.5px] text-amber-900 leading-relaxed">
+            {ticked
+              ? <>This field still uses an older hand-picked list of <strong>{ticked}</strong> college
+                  {ticked === 1 ? '' : 's'}. Colleges added since are <strong>not</strong> offered.
+                  Pick a folder above to offer that whole folder instead — including anything you add to it later.</>
+              : <>No folder and no colleges picked, so candidates are shown
+                  <strong> every college in this workspace</strong>. Choose a folder above to narrow it.</>}
+          </p>
+        </div>
+        {allowAddToggle}
+      </div>
+    )
+  }
 
   function toggle(id) {
     const next = new Set(selected)
     next.has(String(id)) ? next.delete(String(id)) : next.add(String(id))
     onChange({ ...field, selectedCollegeIds: [...next] })
   }
-  const selectAll = () => onChange({ ...field, selectedCollegeIds: colleges.map(c => String(c._id)) })
+  const selectAll = () => onChange({ ...field, selectedCollegeIds: inCategory.map(c => String(c._id)) })
   const clearAll  = () => onChange({ ...field, selectedCollegeIds: [] })
 
-  if (colleges.length === 0) {
+  if (inCategory.length === 0) {
     return (
-      <div className="rounded-xl border border-dashed border-surface-300 bg-surface-50 p-5 text-center">
-        <div className="w-10 h-10 rounded-xl bg-white ring-1 ring-surface-200 flex items-center justify-center mx-auto mb-3">
-          <IconBuilding size={19} className="text-ink-400" />
+      <div className={disabled ? 'opacity-60 pointer-events-none' : ''}>
+        {folderChooser}
+        <div className="rounded-xl border border-dashed border-surface-300 bg-surface-50 p-5 text-center">
+          <div className="w-10 h-10 rounded-xl bg-white ring-1 ring-surface-200 flex items-center justify-center mx-auto mb-3">
+            <IconBuilding size={19} className="text-ink-400" />
+          </div>
+          <p className="text-[13px] font-medium text-ink-700">This folder has no colleges yet</p>
+          <p className="text-[12.5px] text-ink-400 mt-1 mb-3.5">
+            Add or import colleges into it, then pick them here.
+          </p>
+          <Link to={ADMIN_COLLEGES} className="btn-secondary !py-2 text-[13px]">
+            Add colleges <IconArrowRight />
+          </Link>
         </div>
-        <p className="text-[13px] font-medium text-ink-700">No colleges in this workspace yet</p>
-        <p className="text-[12.5px] text-ink-400 mt-1 mb-3.5">
-          Colleges are managed in one place and reused by every form.
-        </p>
-        <Link to={ADMIN_COLLEGES} className="btn-secondary !py-2 text-[13px]">
-          Add colleges <IconArrowRight />
-        </Link>
       </div>
     )
   }
 
   return (
     <div className={disabled ? 'opacity-60 pointer-events-none' : ''}>
+      {folderChooser}
       <div className="flex items-center justify-between gap-2 mb-2">
         <p className="text-[12.5px] text-ink-500">
-          <span className="font-semibold text-brand-700">{selected.size}</span> of {colleges.length} selected
+          <span className="font-semibold text-brand-700">{selected.size}</span> of {inCategory.length} selected
         </p>
         <div className="flex items-center gap-1">
           <button type="button" onClick={selectAll} className="text-[12px] font-medium text-brand-700 hover:text-brand-800 px-2 py-1 rounded hover:bg-brand-50 transition">
@@ -136,15 +233,17 @@ function CollegePicker({ field, colleges, onChange, disabled }) {
       </div>
 
       <p className="form-hint">
-        Only the colleges you tick here appear on this form's public page. Colleges added later
-        stay available in <Link to={ADMIN_COLLEGES} className="text-brand-700 hover:underline">Workspace → Colleges</Link> until you select them.
+        Tick none to offer the whole folder, or tick some to narrow it. Colleges added to this
+        folder later stay available in <Link to={ADMIN_COLLEGES} className="text-brand-700 hover:underline">Workspace → Colleges</Link>.
       </p>
+
+      {allowAddToggle}
     </div>
   )
 }
 
 // ── Properties panel ────────────────────────────────────────────────────────
-function FieldProperties({ field, colleges, onChange, onRemove, readOnly }) {
+function FieldProperties({ field, colleges, categories, onChange, onRemove, readOnly }) {
   if (!field) {
     return (
       <div className="text-center py-12 px-5">
@@ -187,6 +286,7 @@ function FieldProperties({ field, colleges, onChange, onRemove, readOnly }) {
             const patch = { type }
             if (OPTION_TYPES.has(type) && !field.options?.length) patch.options = ['']
             if (type === 'college' && !field.selectedCollegeIds) patch.selectedCollegeIds = []
+            if (type === 'college' && field.collegeCategory === undefined) patch.collegeCategory = null
             set(patch)
           }}>
           {FIELD_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
@@ -237,7 +337,7 @@ function FieldProperties({ field, colleges, onChange, onRemove, readOnly }) {
       {field.type === 'college' && (
         <div>
           <label className="form-label">Select Colleges</label>
-          <CollegePicker field={field} colleges={colleges} onChange={onChange} disabled={readOnly} />
+          <CollegePicker field={field} colleges={colleges} categories={categories} onChange={onChange} disabled={readOnly} />
         </div>
       )}
 
@@ -253,7 +353,7 @@ function FieldProperties({ field, colleges, onChange, onRemove, readOnly }) {
 }
 
 // ── Canvas preview of a single field ────────────────────────────────────────
-function FieldPreview({ field, colleges, selected, onSelect, onMove, isFirst, isLast, index, readOnly }) {
+function FieldPreview({ field, colleges, categories, selected, onSelect, onMove, isFirst, isLast, index, readOnly }) {
   const Icon = TYPE_META[field.type]?.icon || IconType
   const selectedNames = (field.selectedCollegeIds || [])
     .map(id => colleges.find(c => String(c._id) === String(id))?.name)
@@ -263,15 +363,36 @@ function FieldPreview({ field, colleges, selected, onSelect, onMove, isFirst, is
     switch (field.type) {
       case 'textarea':
         return <div className="form-input !bg-surface-50 h-[68px] text-ink-400">{field.placeholder || 'Long answer…'}</div>
-      case 'college':
+      case 'college': {
+        // No explicit tick list on a folder-backed field means the WHOLE
+        // folder is offered, so the count has to come from the folder.
+        const folder = (categories || []).find(c => String(c._id) === String(field.collegeCategory))
+        const available = selectedNames.length || (folder ? (folder.collegeCount || 0) : 0)
         return (
-          <div className="form-input !bg-surface-50 flex items-center justify-between text-ink-400">
-            <span>{selectedNames.length ? 'Select college…' : 'No colleges selected yet'}</span>
-            <span className="text-[11px] font-semibold text-brand-700 bg-brand-50 px-2 py-0.5 rounded">
-              {selectedNames.length} available
+          <div className="form-input !bg-surface-50 flex items-center justify-between gap-2 text-ink-400">
+            <span className="truncate">
+              {!field.collegeCategory ? 'No folder chosen yet'
+                : available ? 'Search your college\u2026'
+                : 'No colleges in this folder yet'}
+            </span>
+            <span className="flex items-center gap-1.5 flex-shrink-0">
+              {field.allowCustomCollege && (
+                <span className="text-[11px] font-semibold text-amber-800 bg-amber-50 px-2 py-0.5 rounded">
+                  can add own
+                </span>
+              )}
+              {folder && (
+                <span className="text-[11px] font-semibold text-ink-500 bg-surface-100 px-2 py-0.5 rounded truncate max-w-[120px]">
+                  {folder.name}
+                </span>
+              )}
+              <span className="text-[11px] font-semibold text-brand-700 bg-brand-50 px-2 py-0.5 rounded">
+                {available} available
+              </span>
             </span>
           </div>
         )
+      }
       case 'dropdown':
         return <div className="form-input !bg-surface-50 text-ink-400">{(field.options || []).filter(Boolean)[0] || 'Select…'}</div>
       case 'radio':
@@ -342,6 +463,7 @@ export default function AdminFormBuilder() {
   const [origin, setOrigin] = useState('custom')
   const [fields, setFields] = useState([])
   const [colleges, setColleges] = useState([])
+  const [collegeCategories, setCollegeCategories] = useState([])
   const [selectedKey, setSelectedKey] = useState(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -384,6 +506,11 @@ export default function AdminFormBuilder() {
       .then(res => { if (!cancelled) setColleges(res.data) })
       .catch(() => { if (!cancelled) setColleges([]) })
 
+    // The folders those colleges are grouped into - a College field picks one.
+    API.get('/api/college-categories')
+      .then(res => { if (!cancelled) setCollegeCategories(res.data) })
+      .catch(() => { if (!cancelled) setCollegeCategories([]) })
+
     API.get(`/api/forms/${formId}`)
       .then(res => {
         if (cancelled) return   // a newer form was opened while this was in flight
@@ -419,7 +546,9 @@ export default function AdminFormBuilder() {
       placeholder: '',
       required: false,
       options: OPTION_TYPES.has(type) ? [''] : [],
-      selectedCollegeIds: []
+      selectedCollegeIds: [],
+      collegeCategory: null,
+      allowCustomCollege: false
     }])
     setSelectedKey(key)
   }
@@ -456,13 +585,20 @@ export default function AdminFormBuilder() {
       // A built-in intake form's structure is fixed — only its labelling is
       // editable, so `fields` is left out of the request entirely.
       if (!readOnlyFields) {
+        // This list is a WHITELIST: anything not named here never reaches the
+        // server, and the server then stores its default instead — which is
+        // why a new per-field setting must be added in both places or it
+        // silently resets on every save.
         payload.fields = fields.map((f, i) => ({
           // _id is sent back so the server keeps existing field ids stable and
           // previously collected responses stay attached to their fields.
           ...(f._id ? { _id: f._id } : {}),
           type: f.type, label: f.label, placeholder: f.placeholder,
           required: f.required, options: f.options,
-          selectedCollegeIds: f.selectedCollegeIds, order: i
+          selectedCollegeIds: f.selectedCollegeIds,
+          collegeCategory: f.collegeCategory || null,
+          allowCustomCollege: !!f.allowCustomCollege,
+          order: i
         }))
       }
       await API.put(`/api/forms/${formId}`, payload)
@@ -605,6 +741,7 @@ export default function AdminFormBuilder() {
                     field={f}
                     index={i}
                     colleges={colleges}
+                    categories={collegeCategories}
                     selected={selectedKey === f.key}
                     onSelect={() => setSelectedKey(f.key)}
                     onMove={dir => moveField(f.key, dir)}
@@ -627,6 +764,7 @@ export default function AdminFormBuilder() {
             <FieldProperties
               field={selectedField}
               colleges={colleges}
+              categories={collegeCategories}
               readOnly={readOnlyFields}
               onChange={updated => updateField(selectedKey, updated)}
               onRemove={() => removeField(selectedKey)}

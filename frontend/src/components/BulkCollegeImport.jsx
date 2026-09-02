@@ -137,7 +137,9 @@ async function downloadTemplate() {
   setTimeout(() => URL.revokeObjectURL(url), 30000)
 }
 
-export default function BulkCollegeImport({ existing, onClose, onImported }) {
+// `category` is the folder the rows land in — imports are always scoped to one
+// folder, so an "MBA Colleges" spreadsheet cannot leak into the engineering list.
+export default function BulkCollegeImport({ existing, category, categoryName, onClose, onImported }) {
   const [mode, setMode] = useState('file')      // 'file' | 'paste'
   const [text, setText] = useState('')
   const [fileRows, setFileRows] = useState(null)
@@ -204,7 +206,7 @@ export default function BulkCollegeImport({ existing, onClose, onImported }) {
     setBusy(true)
     setError('')
     try {
-      const res = await API.post('/api/colleges/bulk', { colleges: fresh })
+      const res = await API.post('/api/colleges/bulk', { colleges: fresh, category })
       setResult(res.data)
       onImported(res.data.colleges)
     } catch (err) {
@@ -235,7 +237,9 @@ export default function BulkCollegeImport({ existing, onClose, onImported }) {
 
         <div className="flex items-start justify-between gap-4 px-6 py-5 border-b border-surface-200">
           <div>
-            <h3 className="font-heading text-lg font-bold text-ink-900">Import Colleges</h3>
+            <h3 className="font-heading text-lg font-bold text-ink-900">
+              Import Colleges{categoryName ? <> into <span className="text-brand-700">{categoryName}</span></> : null}
+            </h3>
             <p className="text-[13px] text-ink-500 mt-0.5">
               Upload a spreadsheet or paste a list. Nothing is saved until you confirm.
             </p>

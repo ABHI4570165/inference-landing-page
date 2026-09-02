@@ -21,16 +21,32 @@ import { IconCheckCircle, IconClose } from '../components/Icons'
 const FULL_WIDTH_TYPES = new Set(['textarea', 'checkbox', 'radio', 'file'])
 
 // ── Searchable college dropdown ────────────────────────────────────────────────
-function CollegeSelect({ colleges, value, onChange }) {
+function CollegeSelect({ field, colleges, value, onChange, slug, onCollegeAdded }) {
   const [query, setQuery] = useState('')
   const [open, setOpen] = useState(false)
+  const [adding, setAdding] = useState(false)
+  const [addError, setAddError] = useState('')
   const ref = useRef()
 
-  const options = colleges.map(c => ({
-    _id: c._id,
-    name: [c.code ? `${c.name} (${c.code})` : c.name, c.location, c.address].filter(Boolean).join(' — ')
-  }))
-  const filtered = options.filter(o => o.name.toLowerCase().includes(query.toLowerCase()))
+  const labelOf = c =>
+    [c.code ? `${c.name} (${c.code})` : c.name, c.location, c.address].filter(Boolean).join(' — ')
+
+  const options = colleges.map(c => ({ _id: c._id, name: labelOf(c) }))
+  const typed = query.trim()
+  const filtered = options.filter(o => o.name.toLowerCase().includes(typed.toLowerCase()))
+
+  // College names are stored in capitals with runs of whitespace collapsed, so
+  // that is what a candidate is shown they are about to save — and it is the
+  // same comparison used to decide "already listed", so "svce", "SVCE" and
+  // "S V C E  " are never all added as separate colleges.
+  const normalise = v => String(v || '').trim().replace(/\s+/g, ' ').toUpperCase()
+  const asSaved = normalise(typed)
+
+  // Typing the name of a college that IS already listed must not create a
+  // second copy of it — the candidate simply has not spotted it in the list,
+  // so point them at the existing entry instead of offering to add it again.
+  const duplicate = colleges.find(c => normalise(c.name) === asSaved)
+  const canAdd = !!field.allowCustomCollege && asSaved.length >= 4 && !duplicate
 
   useEffect(() => {
     function handler(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
@@ -39,10 +55,43 @@ function CollegeSelect({ colleges, value, onChange }) {
   }, [])
 
   function select(college) { onChange(college._id); setQuery(college.name); setOpen(false) }
+
   useEffect(() => {
     const selected = colleges.find(c => c._id === value)
-    setQuery(selected ? [selected.code ? `${selected.name} (${selected.code})` : selected.name, selected.location, selected.address].filter(Boolean).join(' — ') : '')
+    // Only overwrite what they typed once a real selection exists, so an
+    // in-progress search is never wiped out by this syncing effect.
+    if (selected) setQuery(labelOf(selected))
   }, [value, colleges])
+
+  async function addCollege() {
+    setAdding(true)
+    setAddError('')
+    try {
+      const res = await API.post(`/api/public/forms/${slug}/colleges`, {
+        fieldId: field._id,
+        name: typed
+      })
+      onCollegeAdded(field._id, res.data)
+      onChange(res.data._id)
+      setQuery(labelOf(res.data))
+      setOpen(false)
+    } catch (err) {
+      const data = err.response?.data
+      // Someone else added the same college between this page loading and the
+      // button being pressed. Nothing went wrong for the candidate — put the
+      // existing college in front of them and select it.
+      if (data?.code === 'ALREADY_LISTED' && data.college) {
+        onCollegeAdded(field._id, data.college)
+        onChange(data.college._id)
+        setQuery(labelOf(data.college))
+        setOpen(false)
+        return
+      }
+      setAddError(data?.message || 'Could not add that college. Please try again.')
+    } finally {
+      setAdding(false)
+    }
+  }
 
   return (
     <div ref={ref} className="relative">
@@ -51,7 +100,7 @@ function CollegeSelect({ colleges, value, onChange }) {
         className="form-input w-full pr-8"
         placeholder="Type to search your college…"
         value={query}
-        onChange={e => { setQuery(e.target.value); setOpen(true); if (!e.target.value) onChange('') }}
+        onChange={e => { setQuery(e.target.value); setOpen(true); setAddError(''); if (!e.target.value) onChange('') }}
         onFocus={() => setOpen(true)}
         autoComplete="off"
       />
@@ -76,11 +125,108 @@ function CollegeSelect({ colleges, value, onChange }) {
               ))}
             </ul>
           )}
-          <div className="px-4 py-2.5 bg-amber-50 border-t border-amber-100 text-amber-800 text-xs">
-            🏫 College not listed? Please contact your <strong>Placement Officer</strong> to get your college added.
-          </div>
+          {filtered.length === 0 && typed && (
+            <p className="px-4 py-2.5 text-gray-500">No college matches “{typed}”</p>
+          )}
+
+          {duplicate && field.allowCustomCollege && value !== duplicate._id ? (
+            <div className="px-4 py-3 bg-amber-50 border-t border-amber-200">
+              <p className="text-xs text-amber-900 mb-2">
+                <strong>{duplicate.name}</strong> is already in the list — please select it
+                instead of adding it again.
+              </p>
+              <button
+                type="button"
+                onMouseDown={e => e.preventDefault()}
+                onClick={() => select({ _id: duplicate._id, name: labelOf(duplicate) })}
+                className="w-full rounded-lg bg-amber-500 text-white text-[13px] font-semibold px-3 py-2
+                           hover:bg-amber-600 transition-colors"
+              >
+                Select {duplicate.name}
+              </button>
+            </div>
+          ) : canAdd ? (
+            <div className="px-4 py-3 bg-brand-50 border-t border-brand-100">
+              <p className="text-xs text-brand-900 mb-2">
+                Can’t find your college? Add it exactly as it is officially known.
+              </p>
+              <button
+                type="button"
+                disabled={adding}
+                onMouseDown={e => e.preventDefault()}
+                onClick={addCollege}
+                className="w-full rounded-lg bg-brand-600 text-white text-[13px] font-semibold px-3 py-2
+                           hover:bg-brand-700 disabled:opacity-60 transition-colors"
+              >
+                {adding ? 'Adding…' : `Add “${asSaved}”`}
+              </button>
+              <p className="text-[11px] text-brand-800/80 mt-1.5">
+                Saved in capitals as <strong>{asSaved}</strong>. Please check the spelling.
+              </p>
+              {addError && <p className="text-xs text-red-700 mt-2">{addError}</p>}
+            </div>
+          ) : field.allowCustomCollege && typed && asSaved.length < 4 ? (
+            <div className="px-4 py-2.5 bg-surface-100 border-t border-surface-200 text-ink-500 text-xs">
+              Keep typing your full college name to add it.
+            </div>
+          ) : !field.allowCustomCollege ? (
+            <div className="px-4 py-2.5 bg-amber-50 border-t border-amber-100 text-amber-800 text-xs">
+              🏫 College not listed? Please contact your <strong>Placement Officer</strong> to get your college added.
+            </div>
+          ) : null}
         </div>
       )}
+    </div>
+  )
+}
+
+// ── Cold-start loading state ───────────────────────────────────────────────
+// The API is on a free tier that sleeps, so the first request of the day can
+// take the better part of a minute to answer. A bare spinner for that long
+// reads as "broken" and candidates close the tab, so this shows the SHAPE of
+// the form arriving (a skeleton) plus a message that escalates as the wait
+// grows, which keeps the wait legible instead of silent.
+const WAIT_STAGES = [
+  { after: 0,  text: 'Loading the application form…' },
+  { after: 4,  text: 'Waking up the server — this can take a few seconds…' },
+  { after: 12, text: 'Almost there. The first visit of the day is the slowest one.' },
+  { after: 25, text: 'Still working. Please keep this tab open — your form is on its way.' }
+]
+
+function FormLoadingSkeleton() {
+  const [seconds, setSeconds] = useState(0)
+
+  useEffect(() => {
+    const id = setInterval(() => setSeconds(s => s + 1), 1000)
+    return () => clearInterval(id)
+  }, [])
+
+  const stage = WAIT_STAGES.filter(s => seconds >= s.after).pop() || WAIT_STAGES[0]
+
+  return (
+    <div className="animate-fade-in">
+      <div className="rounded-2xl border border-surface-200 bg-white p-6 sm:p-8">
+        {/* Title block */}
+        <div className="skeleton-line h-6 w-2/3 mb-3" />
+        <div className="skeleton-line h-3.5 w-1/2 mb-8" />
+
+        {/* Field rows, mirroring the real two-per-row layout */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-6">
+          {[0, 1, 2, 3, 4, 5].map(i => (
+            <div key={i} className={i === 5 ? 'sm:col-span-2' : ''}>
+              <div className="skeleton-line h-3 w-24 mb-2.5" />
+              <div className="skeleton-block h-10 w-full" />
+            </div>
+          ))}
+        </div>
+
+        <div className="skeleton-block h-11 w-full sm:w-48 mt-8" />
+      </div>
+
+      <div className="flex items-center justify-center gap-2.5 mt-6 px-4">
+        <Spinner />
+        <p className="text-[13px] text-ink-500 text-center" aria-live="polite">{stage.text}</p>
+      </div>
     </div>
   )
 }
@@ -140,7 +286,7 @@ function FileField({ field, value, onChange, slug }) {
   )
 }
 
-function Field({ field, value, onChange, slug }) {
+function Field({ field, value, onChange, slug, onCollegeAdded }) {
   const common = {
     className: 'form-input',
     placeholder: field.placeholder || '',
@@ -159,15 +305,25 @@ function Field({ field, value, onChange, slug }) {
       )
     case 'college': {
       const options = field.collegeOptions || []
-      if (options.length === 0) {
+      // An empty list is only a dead end when the candidate also cannot add
+      // their own — otherwise the picker still has a job to do.
+      if (options.length === 0 && !field.allowCustomCollege) {
         return (
           <p className="text-[13px] text-ink-400 bg-surface-100 border border-surface-200 rounded-lg px-3.5 py-2.5">
             No colleges are available for this form.
           </p>
         )
       }
-      // Use searchable dropdown for 145 colleges
-      return <CollegeSelect colleges={options} value={value || ''} onChange={onChange} />
+      return (
+        <CollegeSelect
+          field={field}
+          colleges={options}
+          value={value || ''}
+          onChange={onChange}
+          slug={slug}
+          onCollegeAdded={onCollegeAdded}
+        />
+      )
     }
     case 'radio':
       return (
@@ -261,6 +417,27 @@ export default function PublicForm() {
     return () => { cancelled = true }
   }, [publicSlug])
 
+  // A college the candidate just added becomes a normal option straight away,
+  // so the dropdown shows it selected instead of looking like nothing happened.
+  function addCollegeOption(fieldId, college) {
+    setForm(prev => {
+      if (!prev) return prev
+      return {
+        ...prev,
+        fields: prev.fields.map(f => {
+          if (String(f._id) !== String(fieldId)) return f
+          const existing = f.collegeOptions || []
+          if (existing.some(c => String(c._id) === String(college._id))) return f
+          return {
+            ...f,
+            collegeOptions: [...existing, college]
+              .sort((a, b) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base' }))
+          }
+        })
+      }
+    })
+  }
+
   async function handleSubmit(e) {
     e.preventDefault()
     setSubmitting(true)
@@ -279,7 +456,7 @@ export default function PublicForm() {
   if (loading) {
     return (
       <PublicShell>
-        <div className="flex justify-center py-24"><Spinner size="lg" /></div>
+        <FormLoadingSkeleton />
       </PublicShell>
     )
   }
@@ -358,6 +535,7 @@ export default function PublicForm() {
                       value={values[field._id]}
                       slug={publicSlug}
                       onChange={v => setValues(prev => ({ ...prev, [field._id]: v }))}
+                      onCollegeAdded={addCollegeOption}
                     />
                   </div>
                 ))}
