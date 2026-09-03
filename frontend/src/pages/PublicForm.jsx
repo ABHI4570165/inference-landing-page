@@ -180,20 +180,20 @@ function CollegeSelect({ field, colleges, value, onChange, slug, onCollegeAdded 
   )
 }
 
-// ── Cold-start loading state ───────────────────────────────────────────────
-// The API is on a free tier that sleeps, so the first request of the day can
-// take the better part of a minute to answer. A bare spinner for that long
-// reads as "broken" and candidates close the tab, so this shows the SHAPE of
-// the form arriving (a skeleton) plus a message that escalates as the wait
-// grows, which keeps the wait legible instead of silent.
+// ── Loading state ──────────────────────────────────────────────────────────
+// The first request after a quiet spell can take a while to answer. A bare
+// spinner for that long reads as "broken" and candidates close the tab, so the
+// wait is narrated instead — centred on screen, and reassuring rather than
+// technical. Candidates should never be shown anything about how the service is
+// hosted; that is our problem, not theirs.
 const WAIT_STAGES = [
-  { after: 0,  text: 'Loading the application form…' },
-  { after: 4,  text: 'Waking up the server — this can take a few seconds…' },
-  { after: 12, text: 'Almost there. The first visit of the day is the slowest one.' },
-  { after: 25, text: 'Still working. Please keep this tab open — your form is on its way.' }
+  { after: 0,  text: 'Please wait…',                       sub: 'Your application form is being prepared.' },
+  { after: 5,  text: 'Getting your form ready…',           sub: 'This will only take a moment.' },
+  { after: 12, text: 'Almost ready…',                      sub: 'Thank you for your patience.' },
+  { after: 25, text: 'Just a little longer…',              sub: 'Please keep this page open — your form is on its way.' }
 ]
 
-function FormLoadingSkeleton() {
+function FormLoading() {
   const [seconds, setSeconds] = useState(0)
 
   useEffect(() => {
@@ -204,29 +204,15 @@ function FormLoadingSkeleton() {
   const stage = WAIT_STAGES.filter(s => seconds >= s.after).pop() || WAIT_STAGES[0]
 
   return (
-    <div className="animate-fade-in">
-      <div className="rounded-2xl border border-surface-200 bg-white p-6 sm:p-8">
-        {/* Title block */}
-        <div className="skeleton-line h-6 w-2/3 mb-3" />
-        <div className="skeleton-line h-3.5 w-1/2 mb-8" />
-
-        {/* Field rows, mirroring the real two-per-row layout */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-6">
-          {[0, 1, 2, 3, 4, 5].map(i => (
-            <div key={i} className={i === 5 ? 'sm:col-span-2' : ''}>
-              <div className="skeleton-line h-3 w-24 mb-2.5" />
-              <div className="skeleton-block h-10 w-full" />
-            </div>
-          ))}
-        </div>
-
-        <div className="skeleton-block h-11 w-full sm:w-48 mt-8" />
-      </div>
-
-      <div className="flex items-center justify-center gap-2.5 mt-6 px-4">
-        <Spinner />
-        <p className="text-[13px] text-ink-500 text-center" aria-live="polite">{stage.text}</p>
-      </div>
+    <div className="flex flex-col items-center justify-center text-center animate-fade-in
+                    min-h-[60vh] px-6">
+      <Spinner size="lg" />
+      <p className="mt-5 text-[17px] font-semibold text-ink-800" aria-live="polite">
+        {stage.text}
+      </p>
+      <p className="mt-1.5 text-[13.5px] text-ink-500 max-w-xs leading-relaxed">
+        {stage.sub}
+      </p>
     </div>
   )
 }
@@ -456,7 +442,7 @@ export default function PublicForm() {
   if (loading) {
     return (
       <PublicShell>
-        <FormLoadingSkeleton />
+        <FormLoading />
       </PublicShell>
     )
   }
