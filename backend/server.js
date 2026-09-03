@@ -166,6 +166,21 @@ app.get('/', (req, res) =>
   res.json({ message: 'Portal API is running' })
 );
 
+// Cheap liveness endpoint, and the target of the daytime keep-warm ping
+// (services/keepAlive.js). Deliberately touches nothing — no database, no
+// auth — so a ping every few minutes costs essentially nothing.
+app.get('/healthz', (req, res) => {
+  const { istHour, readConfig, isWithinWindow } = require('./services/keepAlive');
+  const cfg = readConfig();
+  res.json({
+    status: 'ok',
+    uptimeSeconds: Math.round(process.uptime()),
+    istHour: istHour(),
+    keepAliveWindow: `${cfg.startHour}:00-${cfg.endHour}:00 IST`,
+    withinKeepAliveWindow: isWithinWindow(istHour(), cfg.startHour, cfg.endHour)
+  });
+});
+
 // Global error handler — ensures all uncaught errors return JSON
 app.use((err, req, res, next) => {
   console.error('[Global Error Handler]', err);
@@ -187,9 +202,11 @@ mongoose.connect(process.env.MONGODB_URI)
     // is no longer running — release it so it can be regenerated.
     await require('./services/aiReport').recoverOrphanedReports();
 
-    app.listen(PORT, () =>
-      console.log(`✅  Server running on http://localhost:${PORT}`)
-    );
+    app.listen(PORT, () => {
+      console.log(`✅  Server running on http://localhost:${PORT}`);
+      // Keeps the free-tier service warm during working hours only.
+      require('./services/keepAlive').startKeepAlive();
+    });
   })
   .catch(err => {
     console.error('❌  MongoDB connection error:', err);
