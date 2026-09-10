@@ -159,6 +159,7 @@ app.use('/api/admin/dashboard', require('./routes/dashboard'));
 app.use('/api/applications', require('./routes/applications'));
 app.use('/api/workspaces', require('./routes/workspaces'));
 app.use('/api/forms', require('./routes/forms'));
+app.use('/api/reports', require('./routes/reports'));
 app.use('/api/public/forms', submitLimiter, require('./routes/publicForms'));
 
 // Health check
@@ -193,10 +194,14 @@ mongoose.connect(process.env.MONGODB_URI)
   .then(async () => {
     console.log('✅  MongoDB connected');
     await require('./seedAdmin')();
-    await require('./seedCounsellingQuestions')();
     await require('./backfillReceptionCheckins')();
     await require('./backfillWorkspaces')();
     await require('./backfillCollegeCategories')();
+    await require('./backfillCounsellingQuestions')();
+    // Seeds into the default-intake workspace, so it has to run AFTER
+    // backfillWorkspaces creates that workspace — otherwise a fresh install
+    // silently skips the questionnaire until its second boot.
+    await require('./seedCounsellingQuestions')();
     await require('./backfillApplicationForms')();
     // Any report still marked 'generating' belongs to a previous process that
     // is no longer running — release it so it can be regenerated.
@@ -206,6 +211,8 @@ mongoose.connect(process.env.MONGODB_URI)
       console.log(`✅  Server running on http://localhost:${PORT}`);
       // Keeps the free-tier service warm during working hours only.
       require('./services/keepAlive').startKeepAlive();
+      // Daily applications report at 18:00 IST.
+      require('./services/reportScheduler').startReportScheduler();
     });
   })
   .catch(err => {
