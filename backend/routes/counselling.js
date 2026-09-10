@@ -36,8 +36,12 @@ function publicQuestion(q) {
 }
 
 // Group active questions into ordered sections
-async function loadForm() {
-  const questions = await CounsellingQuestion.find({ active: true }).sort({ order: 1 }).lean();
+// The questionnaire belongs to ONE workspace — a jewellery drive and a sugar
+// drive ask different things — so the student is always served the question set
+// of the drive their response belongs to.
+async function loadForm(workspaceId) {
+  const questions = await CounsellingQuestion.find({ active: true, workspace: workspaceId })
+    .sort({ order: 1 }).lean();
   const sections = [];
   const byKey = new Map();
   for (const q of questions) {
@@ -187,7 +191,10 @@ router.post('/verify', async (req, res) => {
 // The questionnaire (from the database), grouped by section, points stripped.
 router.get('/form', counsellingAuth, async (req, res) => {
   try {
-    res.json(await loadForm());
+    const response = await CounsellingResponse.findById(req.counselling.responseId)
+      .select('workspace').lean();
+    if (!response) return res.status(404).json({ message: 'Session not found' });
+    res.json(await loadForm(response.workspace));
   } catch (err) {
     console.error('[GET /api/counselling/form]', err);
     res.status(500).json({ message: 'Server error' });
@@ -219,8 +226,11 @@ router.get('/session', counsellingAuth, async (req, res) => {
 // ── answer validation shared by autosave + submit ───────────────────────────
 // Accepts [{code, selected: [labels], otherText}], validates each against the
 // live question set and computes points server-side (never trusts the client).
-async function buildAnswers(rawAnswers) {
-  const questions = await CounsellingQuestion.find({ active: true }).lean();
+// Scored against the questionnaire of the response's OWN workspace. Codes are
+// only unique per workspace now, so an unscoped lookup could score a jewellery
+// candidate against a sugar drive's Q4.
+async function buildAnswers(rawAnswers, workspaceId) {
+  const questions = await CounsellingQuestion.find({ active: true, workspace: workspaceId }).lean();
   const byCode = new Map(questions.map(q => [q.code, q]));
 
   const answers = [];
@@ -300,7 +310,7 @@ router.put('/autosave', counsellingAuth, async (req, res) => {
       return res.status(409).json({ code: 'ALREADY_SUBMITTED', message: 'This form has already been submitted' });
     }
 
-    const { answers, completionPercent, totalScore, maxScore } = await buildAnswers(req.body.answers);
+    const { answers, completionPercent, totalScore, maxScore } = await buildAnswers(req.body.answers, response.workspace);
     response.set({ answers, completionPercent, totalScore, maxScore, lastSavedAt: new Date() });
     await response.save();
 
@@ -334,7 +344,7 @@ router.post('/submit', counsellingAuth, async (req, res) => {
     }
 
     const { answers, completionPercent, missingRequired, totalScore, maxScore } =
-      await buildAnswers(req.body.answers);
+      await buildAnswers(req.body.answers, response.workspace);
 
     if (missingRequired.length > 0) {
       return res.status(400).json({

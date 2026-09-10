@@ -10,6 +10,13 @@ const optionSchema = new mongoose.Schema({
 }, { _id: false });
 
 const counsellingQuestionSchema = new mongoose.Schema({
+  // Which recruitment drive this questionnaire belongs to. Questions used to be
+  // a single global set shared by every workspace, which meant a jewellery
+  // drive and a sugar drive could not ask different things. Each workspace now
+  // owns its own questionnaire; backfillCounsellingQuestions.js moved the
+  // original 35 into the default-intake workspace, so nothing changed for it.
+  workspace: { type: mongoose.Schema.Types.ObjectId, ref: 'Workspace', required: true, index: true },
+
   // Section grouping — e.g. key 'A', title 'About You'
   sectionKey:   { type: String, required: true, trim: true, index: true },
   sectionTitle: { type: String, required: true, trim: true },
@@ -20,8 +27,9 @@ const counsellingQuestionSchema = new mongoose.Schema({
   order: { type: Number, required: true, index: true },
 
   // Question code shown to admins (Q1, Q2 …) — also used as a stable key for
-  // draft answers saved on the student's device
-  code: { type: String, required: true, trim: true, unique: true },
+  // draft answers saved on the student's device. Unique per WORKSPACE, not
+  // globally: every drive numbers its own questionnaire from Q1.
+  code: { type: String, required: true, trim: true },
 
   text: { type: String, required: true, trim: true },
 
@@ -48,5 +56,11 @@ const counsellingQuestionSchema = new mongoose.Schema({
   // questions change). e.g. ['technicalReadiness', 'careerClarity']
   metricTags: { type: [String], default: [] }
 }, { timestamps: true });
+
+// One Q-code per workspace. The old global unique index on `code` is dropped by
+// backfillCounsellingQuestions.js — leaving it would stop a second workspace
+// ever having its own Q1.
+counsellingQuestionSchema.index({ workspace: 1, code: 1 }, { unique: true });
+counsellingQuestionSchema.index({ workspace: 1, order: 1 });
 
 module.exports = mongoose.model('CounsellingQuestion', counsellingQuestionSchema);

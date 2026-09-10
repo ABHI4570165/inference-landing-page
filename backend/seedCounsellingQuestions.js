@@ -396,13 +396,21 @@ const QUESTIONS = [
   }
 ];
 
+// Seeds into the DEFAULT-INTAKE workspace only. Questionnaires are per-workspace
+// now, and this particular set was written for that drive — a new company gets
+// its own questions rather than inheriting these.
 module.exports = async function seedCounsellingQuestions() {
-  const count = await CounsellingQuestion.estimatedDocumentCount();
+  const Workspace = require('./models/Workspace');
+  const intake = await Workspace.findOne({ isDefaultIntake: true }).select('_id').lean();
+  if (!intake) return;   // nothing to seed into yet; backfillWorkspaces runs first
+
+  const count = await CounsellingQuestion.countDocuments({ workspace: intake._id });
   if (count > 0) return; // already seeded — questions are managed from the admin UI
 
   await CounsellingQuestion.insertMany(
     QUESTIONS.map((q, i) => ({
       ...q,
+      workspace: intake._id,
       order: (i + 1) * 10,
       required: q.required !== undefined ? q.required : true,
       active: true

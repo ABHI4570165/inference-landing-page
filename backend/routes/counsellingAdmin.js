@@ -26,9 +26,9 @@ function logAudit(action, entityType, entityId, admin, before, after, meta) {
 // ═══════════════════════ QUESTION MANAGEMENT ═══════════════════════════════
 
 // GET /api/admin/counselling/questions — full list (points included)
-router.get('/questions', auth, async (req, res) => {
+router.get('/questions', auth, requireWorkspace, async (req, res) => {
   try {
-    const questions = await CounsellingQuestion.find({}).sort({ order: 1 }).lean();
+    const questions = await CounsellingQuestion.find({ workspace: req.workspaceId }).sort({ order: 1 }).lean();
     res.json(questions);
   } catch (err) {
     console.error('[GET counselling/questions]', err);
@@ -58,7 +58,7 @@ function cleanQuestionBody(body) {
 }
 
 // POST /api/admin/counselling/questions — add a new question
-router.post('/questions', auth, async (req, res) => {
+router.post('/questions', auth, requireWorkspace, async (req, res) => {
   try {
     const doc = cleanQuestionBody(req.body);
     if (!doc.text) return res.status(400).json({ message: 'Question text is required' });
@@ -68,18 +68,18 @@ router.post('/questions', auth, async (req, res) => {
     }
     if (!doc.code) {
       // Auto-assign the next Q-number
-      const last = await CounsellingQuestion.find({}).sort({ order: -1 }).limit(1).lean();
-      const maxNum = (await CounsellingQuestion.find({}).lean())
+      const last = await CounsellingQuestion.find({ workspace: req.workspaceId }).sort({ order: -1 }).limit(1).lean();
+      const maxNum = (await CounsellingQuestion.find({ workspace: req.workspaceId }).lean())
         .reduce((m, q) => Math.max(m, parseInt(String(q.code).replace(/\D/g, ''), 10) || 0), 0);
       doc.code = `Q${maxNum + 1}`;
       if (doc.order === undefined) doc.order = (last[0]?.order || 0) + 10;
     }
     if (doc.order === undefined) {
-      const last = await CounsellingQuestion.find({}).sort({ order: -1 }).limit(1).lean();
+      const last = await CounsellingQuestion.find({ workspace: req.workspaceId }).sort({ order: -1 }).limit(1).lean();
       doc.order = (last[0]?.order || 0) + 10;
     }
 
-    const question = await CounsellingQuestion.create(doc);
+    const question = await CounsellingQuestion.create({ ...doc, workspace: req.workspaceId });
     logAudit('question.create', 'CounsellingQuestion', question._id, req.admin?.email, null, question.toObject());
     res.status(201).json(question);
   } catch (err) {
@@ -90,14 +90,16 @@ router.post('/questions', auth, async (req, res) => {
 });
 
 // PUT /api/admin/counselling/questions/:id — edit a question
-router.put('/questions/:id', auth, async (req, res) => {
+router.put('/questions/:id', auth, requireWorkspace, async (req, res) => {
   try {
-    const before = await CounsellingQuestion.findById(req.params.id).lean();
+    const before = await CounsellingQuestion.findOne({ _id: req.params.id, workspace: req.workspaceId }).lean();
     if (!before) return res.status(404).json({ message: 'Question not found' });
 
     const doc = cleanQuestionBody(req.body);
-    const question = await CounsellingQuestion.findByIdAndUpdate(
-      req.params.id, { $set: doc }, { new: true, runValidators: true }
+    // Scoped by workspace as well as id so a crafted request can never edit
+    // another drive's questionnaire.
+    const question = await CounsellingQuestion.findOneAndUpdate(
+      { _id: req.params.id, workspace: req.workspaceId }, { $set: doc }, { new: true, runValidators: true }
     );
     logAudit('question.update', 'CounsellingQuestion', question._id, req.admin?.email, before, question.toObject());
     res.json(question);
@@ -110,10 +112,10 @@ router.put('/questions/:id', auth, async (req, res) => {
 
 // DELETE /api/admin/counselling/questions/:id — deactivate (soft delete).
 // Historical responses keep their snapshot of the question text.
-router.delete('/questions/:id', auth, async (req, res) => {
+router.delete('/questions/:id', auth, requireWorkspace, async (req, res) => {
   try {
-    const question = await CounsellingQuestion.findByIdAndUpdate(
-      req.params.id, { $set: { active: false } }, { new: true }
+    const question = await CounsellingQuestion.findOneAndUpdate(
+      { _id: req.params.id, workspace: req.workspaceId }, { $set: { active: false } }, { new: true }
     );
     if (!question) return res.status(404).json({ message: 'Question not found' });
     logAudit('question.deactivate', 'CounsellingQuestion', question._id, req.admin?.email);
@@ -462,7 +464,7 @@ router.get('/export', auth, requireWorkspace, async (req, res) => {
       .lean();
     const reportByResponse = new Map(reports.map(r => [String(r.response), r]));
 
-    const questions = await CounsellingQuestion.find({}).sort({ order: 1 }).lean();
+    const questions = await CounsellingQuestion.find({ workspace: req.workspaceId }).sort({ order: 1 }).lean();
 
     res.json({
       questions: questions.map(q => ({ code: q.code, text: q.text })),

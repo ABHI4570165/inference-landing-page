@@ -335,7 +335,9 @@ async function generateReport(response) {
 
   acquireReportLock(response._id);
   try {
-    const questions = await CounsellingQuestion.find({}).lean();
+    // Scoped to this response's own workspace — each drive has its own
+    // questionnaire, and Q-codes repeat across them.
+    const questions = await CounsellingQuestion.find({ workspace: response.workspace }).lean();
     const { scores: baseScores, totalGot, totalMax } = computeMetricScores(response, questions);
 
     // The in-process lock above already prevents two concurrent runs here, and
