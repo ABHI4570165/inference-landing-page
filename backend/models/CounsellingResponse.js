@@ -62,6 +62,28 @@ const counsellingResponseSchema = new mongoose.Schema({
     index: true
   },
 
+  // When the student first opened the questionnaire, and how long they took.
+  // startedAt is set on the first autosave; durationSeconds is stamped at submit.
+  startedAt:       { type: Date },
+  durationSeconds: { type: Number },
+
+  // Section G — the counsellor's own observation, filled from the admin report
+  // page after meeting the candidate. Never sent to a student.
+  counsellorSection: {
+    G1: { type: String, trim: true, default: '' },   // communication observed
+    G2: { type: String, trim: true, default: '' },   // clarity of career goal
+    G3: { type: String, trim: true, default: '' },   // recommended track
+    G4: { type: String, trim: true, default: '', maxLength: 3000 },  // remarks
+    filledBy: { type: String, trim: true },
+    filledAt: { type: Date }
+  },
+
+  // Deterministic scoring for questionnaires that support it (currently
+  // Accounts & Finance — see services/accountsFinanceScoring.js). Computed on
+  // submit and recomputed whenever the counsellor edits Section G, so the
+  // report page never recalculates. Absent for every other questionnaire.
+  scoring: { type: mongoose.Schema.Types.Mixed },
+
   completionPercent: { type: Number, default: 0 },
   totalScore:        { type: Number, default: 0 },
   maxScore:          { type: Number, default: 0 },

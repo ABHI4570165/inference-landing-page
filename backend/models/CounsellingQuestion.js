@@ -36,9 +36,41 @@ const counsellingQuestionSchema = new mongoose.Schema({
   type: {
     type: String,
     required: true,
-    enum: ['radio', 'checkbox', 'text', 'textarea'],
+    // 'rating' (a 1-5 scale) and 'yesno' are radios with a fixed option set;
+    // they are separate types so the form can render a compact grid and a
+    // two-button choice instead of five/two stacked radios.
+    enum: ['radio', 'checkbox', 'text', 'textarea', 'rating', 'yesno'],
     default: 'radio'
   },
+
+  // ── Optional question behaviour ──
+  // All default to off, so every questionnaire that predates them behaves
+  // exactly as it did.
+
+  // Groups a question for topic-wise scoring (e.g. 'accounting').
+  topic: { type: String, trim: true, default: '' },
+
+  // Cap on a checkbox question ('choose up to 2'). 0 = no cap.
+  maxSelect: { type: Number, default: 0 },
+
+  // Hide this question when the named yes/no question was answered 'No'.
+  skipIfNo: { type: String, trim: true, default: '' },
+
+  // Selecting this option label clears every other selection ('None').
+  clearsOthers: { type: String, trim: true, default: '' },
+
+  // Never sent to a student; filled by the counsellor from the report page.
+  counsellorOnly: { type: Boolean, default: false, index: true },
+
+  // Present the options in a per-student order. Answers are stored and scored
+  // by option TEXT, so reordering can never change a mark.
+  shuffleOptions: { type: Boolean, default: false },
+
+  // Character cap for a free-text answer. 0 = the model default.
+  maxLength: { type: Number, default: 0 },
+
+  // Pre-fill this answer from the student record ('name').
+  prefill: { type: String, trim: true, default: '' },
 
   options: { type: [optionSchema], default: [] },
 

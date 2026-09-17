@@ -14,6 +14,35 @@ function istDate(dateInput) {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date(dateInput))
 }
 
+const BAND_STYLE = {
+  A: 'bg-emerald-100 text-emerald-800 ring-emerald-200',
+  B: 'bg-brand-100 text-brand-800 ring-brand-200',
+  C: 'bg-amber-100 text-amber-800 ring-amber-200',
+  D: 'bg-red-100 text-red-800 ring-red-200'
+}
+
+// A labelled score bar. Deliberately not the AI `Meter`: these are small
+// whole-number scores out of 2-4, so the raw "3 / 4" matters more than a
+// percentage, and the bar is only there to make the shortfall scannable.
+function TopicBar({ label, score, outOf, percent }) {
+  return (
+    <div>
+      <div className="flex items-baseline justify-between mb-1">
+        <span className="text-[13px] font-medium text-gray-700">{label}</span>
+        <span className="text-[13px] tabular-nums text-gray-500">
+          <span className="font-semibold text-gray-800">{score}</span> / {outOf}
+        </span>
+      </div>
+      <div className="h-2 rounded-full bg-gray-200 overflow-hidden">
+        <div
+          className={`h-full rounded-full ${percent >= 75 ? 'bg-emerald-500' : percent >= 50 ? 'bg-brand-500' : 'bg-amber-500'}`}
+          style={{ width: `${percent}%` }}
+        />
+      </div>
+    </div>
+  )
+}
+
 const BEHAVIOUR_LABELS = {
   learningStyle: 'Learning Style', problemSolving: 'Problem Solving',
   decisionMaking: 'Decision Making', confidence: 'Confidence',
@@ -277,6 +306,82 @@ export default function AdminCounsellingDetail() {
             <Meter label="Motivation" value={scores.motivation} />
             <Meter label="Risk Level" value={scores.riskLevel} invert />
             <Meter label="Overall Score" value={scores.overall} />
+          </div>
+        </div>
+      )}
+
+      {/* ── Assessment scoring — only for questionnaires that compute it ── */}
+      {r.scoring && (
+        <div className="card mb-5">
+          <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
+            <h3 className="font-heading font-bold text-gray-800">Assessment Score</h3>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-[210px_minmax(0,1fr)] gap-6 items-start">
+            {/* Headline score */}
+            <div className="text-center rounded-xl bg-gray-50 ring-1 ring-gray-200 px-4 py-5">
+              <p className="text-4xl font-bold text-gray-900 tabular-nums leading-none">
+                {r.scoring.knowledge.total}
+                <span className="text-xl text-gray-400"> / {r.scoring.knowledge.outOf}</span>
+              </p>
+              <p className="text-xs text-gray-500 mt-1">Knowledge check</p>
+              <span className={`badge ring-1 ring-inset mt-3 ${BAND_STYLE[r.scoring.knowledge.band] || ''}`}>
+                Band {r.scoring.knowledge.band} · {r.scoring.knowledge.bandLabel}
+              </span>
+            </div>
+
+            {/* Topic-wise */}
+            <div className="space-y-3.5">
+              {Object.entries(r.scoring.knowledge.topics).map(([key, t]) => (
+                <TopicBar key={key} label={t.label} score={t.score} outOf={t.outOf} percent={t.percent} />
+              ))}
+              <div className="pt-1">
+                <TopicBar
+                  label="Practical exposure"
+                  score={r.scoring.practicalExposure.score}
+                  outOf={r.scoring.practicalExposure.outOf}
+                  percent={Math.round((r.scoring.practicalExposure.score / r.scoring.practicalExposure.outOf) * 100)}
+                />
+                <p className="text-xs text-gray-400 mt-1">{r.scoring.practicalExposure.label}</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Self vs actual — only shown when there is a genuine gap */}
+          {r.scoring.selfVsActual.length > 0 && (
+            <div className="mt-5 rounded-lg bg-amber-50 ring-1 ring-amber-200 px-4 py-3">
+              <p className="text-[12.5px] font-semibold text-amber-900 mb-1.5">Self-rating vs actual</p>
+              <ul className="space-y-1">
+                {r.scoring.selfVsActual.map(f => (
+                  <li key={f.code} className="text-[13px] text-amber-900">
+                    {f.message} — rated {f.selfRating}/5, scored {f.actualPercent}%
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Suggested roles */}
+          <div className="mt-5">
+            <p className="text-[12.5px] font-semibold text-gray-700 mb-2">Suggested roles</p>
+            <div className="space-y-2">
+              {r.scoring.suggestedRoles.map(role => (
+                <div key={role.role} className="flex items-start gap-2.5">
+                  <span className={`badge flex-shrink-0 mt-0.5 ${role.overrides ? 'badge-amber' : 'badge-green'}`}>
+                    {role.role}
+                  </span>
+                  <span className="text-[12.5px] text-gray-500 leading-relaxed">{role.why}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="mt-5 pt-4 border-t border-gray-200 flex items-baseline gap-2 flex-wrap">
+            <span className="text-[12.5px] font-semibold text-gray-700">Recommended track:</span>
+            <span className="text-[13.5px] font-semibold text-gray-900">{r.scoring.recommendedTrack.track}</span>
+            <span className="text-xs text-gray-400">
+              ({r.scoring.recommendedTrack.source === 'counsellor' ? "counsellor's choice" : 'derived from score'})
+            </span>
           </div>
         </div>
       )}
