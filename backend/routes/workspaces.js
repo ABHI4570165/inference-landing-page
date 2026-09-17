@@ -1,6 +1,7 @@
 const router = require('express').Router();
 const auth = require('../config/auth');
 const Workspace = require('../models/Workspace');
+const { DEFAULT_WORKFLOW } = require('../services/candidateWorkflow');
 const Student = require('../models/Student');
 const CounsellingResponse = require('../models/CounsellingResponse');
 const Form = require('../models/Form');
@@ -102,8 +103,15 @@ router.post('/', auth, async (req, res) => {
     if (!recruitmentDriveName) return res.status(400).json({ message: 'Recruitment drive name is required' });
     if (!year || year < 2000 || year > 2100) return res.status(400).json({ message: 'A valid year is required' });
 
+    // Defaults to the full standard chain unless the creator turns a link off.
+    const workflow = {};
+    for (const key of Object.keys(DEFAULT_WORKFLOW)) {
+      workflow[key] = (req.body.workflow || {})[key] !== false;
+    }
+
     const workspace = await Workspace.create({
       companyName, recruitmentDriveName, year, description, status,
+      workflow,
       receptionToken: generatePublicToken('rcp'),
       counsellingToken: generatePublicToken('cns'),
       createdBy: req.admin.id
@@ -139,6 +147,17 @@ router.put('/:id', auth, async (req, res) => {
     const allowed = ['companyName', 'recruitmentDriveName', 'year', 'description', 'status'];
     const update = {};
     allowed.forEach(k => { if (req.body[k] !== undefined) update[k] = req.body[k] });
+
+    // The workflow is written key by key as booleans rather than taken wholesale,
+    // so a request cannot introduce an unknown link or store a non-boolean that
+    // the gates would then read as truthy.
+    if (req.body.workflow && typeof req.body.workflow === 'object') {
+      for (const key of Object.keys(DEFAULT_WORKFLOW)) {
+        if (req.body.workflow[key] !== undefined) {
+          update[`workflow.${key}`] = req.body.workflow[key] !== false;
+        }
+      }
+    }
     if (update.year !== undefined) update.year = parseInt(update.year, 10);
     if (update.status !== undefined && !VALID_STATUS.includes(update.status)) {
       return res.status(400).json({ message: 'Status must be Active or Archived' });

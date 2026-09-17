@@ -49,8 +49,9 @@ async function checkReceptionEligibility(student, workspaceId) {
       message: 'Student record not found.\n\nPlease contact the administrator.' };
   }
 
+  const flow = await workflowFor(workspaceId);
   const attendance = await findPresentAttendance(student._id, workspaceId);
-  if (!attendance) {
+  if (!attendance && flow.attendanceForReception) {
     return { ok: false, status: 403, code: 'NOT_PRESENT',
       message: 'You are not eligible for Reception Registration because your attendance has not been marked present.\n\nPlease contact the administrator.' };
   }
@@ -66,6 +67,25 @@ async function checkReceptionEligibility(student, workspaceId) {
   return { ok: true, attendance };
 }
 
+// Which links of the chain this drive enforces. A workspace saved before the
+// setting existed has no `workflow` at all, and a partially-written one may be
+// missing a key — both must read as "enforced", so the standard flow is what
+// you get unless an admin deliberately turned a link off.
+const DEFAULT_WORKFLOW = {
+  attendanceForReception: true,
+  attendanceForCounselling: true,
+  receptionForCounselling: true
+};
+
+async function workflowFor(workspaceId) {
+  const Workspace = require('../models/Workspace');
+  const ws = await Workspace.findById(workspaceId).select('workflow').lean();
+  const saved = (ws && ws.workflow) || {};
+  const out = {};
+  for (const key of Object.keys(DEFAULT_WORKFLOW)) out[key] = saved[key] !== false;
+  return out;
+}
+
 // ── Gate: may this candidate start/submit Counselling? ──────────────────────
 async function checkCounsellingEligibility(student, workspaceId) {
   if (!student) {
@@ -77,13 +97,15 @@ async function checkCounsellingEligibility(student, workspaceId) {
       message: 'We could not find your registration. Please contact the coordinator.' };
   }
 
+  const flow = await workflowFor(workspaceId);
   const attendance = await findPresentAttendance(student._id, workspaceId);
-  if (!attendance) {
+  if (!attendance && flow.attendanceForCounselling) {
     return { ok: false, status: 403, code: 'NOT_PRESENT',
       message: 'Your attendance has not been recorded yet. Please contact the coordinator.' };
   }
 
-  if (student.registrationStatus !== 'REGISTERED') {
+  // Each prerequisite applies only when this drive enforces that link.
+  if (student.registrationStatus !== 'REGISTERED' && flow.receptionForCounselling) {
     return { ok: false, status: 403, code: 'REGISTRATION_REQUIRED',
       message: 'Reception Registration Required\n\nPlease complete Reception Registration first.' };
   }
@@ -98,6 +120,10 @@ async function checkCounsellingEligibility(student, workspaceId) {
 async function buildWorkflowMap(studentIds, workspaceId) {
   const ids = studentIds.filter(Boolean);
   if (!ids.length) return new Map();
+
+  // Read the same settings the gates use, so the progress chain shown to an
+  // admin never disagrees with what a candidate can actually do.
+  const flow = await workflowFor(workspaceId);
 
   const [attendance, checkins, responses] = await Promise.all([
     Attendance.find({ student: { $in: ids }, workspace: workspaceId })
@@ -174,11 +200,13 @@ async function buildWorkflowMap(studentIds, workspaceId) {
         at: att?.date || null
       },
       reception: {
-        state: !present ? 'locked' : receptionDone ? 'done' : 'pending',
+        state: (flow.attendanceForReception && !present) ? 'locked'
+          : receptionDone ? 'done' : 'pending',
         at: checkin?.registeredAt || null
       },
       counselling: {
-        state: !present || !receptionDone ? 'locked'
+        state: (flow.attendanceForCounselling && !present) ? 'locked'
+          : (flow.receptionForCounselling && !receptionDone) ? 'locked'
           : counsellingDone ? 'done'
           : response ? 'in_progress' : 'pending',
         at: response?.submittedAt || null
@@ -206,6 +234,8 @@ function currentStage(workflow) {
 
 module.exports = {
   STAGES,
+  workflowFor,
+  DEFAULT_WORKFLOW,
   findPresentAttendance,
   checkReceptionEligibility,
   checkCounsellingEligibility,

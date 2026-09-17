@@ -29,8 +29,10 @@ function initialsOf(name) {
 }
 
 // Handles BOTH creating a new workspace and editing an existing one.
-// Editing never touches receptionToken/counsellingToken — the backend PUT
-// only ever updates companyName/recruitmentDriveName/year/description/status.
+// Editing never touches receptionToken/counsellingToken — the backend PUT only
+// updates companyName/recruitmentDriveName/year/description/status. Which steps
+// the drive enforces lives on its own Workflow page, so there is one place to
+// change it rather than two that can disagree.
 function WorkspaceFormModal({ editing, onClose, onSaved }) {
   const [form, setForm] = useState(editing ? {
     companyName: editing.companyName,
@@ -127,6 +129,10 @@ function WorkspaceDetailsModal({ ws, onClose }) {
     ['Recruitment Drive', ws.recruitmentDriveName],
     ['Year', ws.year],
     ['Status', ws.status],
+    ['Required steps', [
+      (ws.workflow?.attendanceForReception !== false || ws.workflow?.attendanceForCounselling !== false) ? 'Attendance' : null,
+      ws.workflow?.receptionForCounselling !== false ? 'Reception' : null
+    ].filter(Boolean).join(' · ') || 'Registration only'],
     ['Created', new Date(ws.createdAt).toLocaleString('en-IN')],
     ['Applications', ws.stats.applications],
     ['Counselling Completed', ws.stats.counsellingCompleted],

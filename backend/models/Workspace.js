@@ -33,6 +33,24 @@ const workspaceSchema = new mongoose.Schema({
   receptionToken:   { type: String, unique: true, sparse: true, index: true },
   counsellingToken: { type: String, unique: true, sparse: true, index: true },
 
+  // Which links in the candidate journey this drive actually enforces.
+  //
+  //     Registration -> Attendance -> Reception -> Counselling
+  //
+  // Registration is not listed because it is not optional: a candidate who has
+  // no Student record cannot be found by any of the later steps. Each flag below
+  // is one ARROW in that chain, and every one defaults to true, so a workspace
+  // saved before this existed enforces the full standard flow.
+  //
+  // Read through services/candidateWorkflow.js, which is the single place these
+  // are interpreted — both for the public gates and for the progress chain the
+  // admin sees, so the two can never disagree.
+  workflow: {
+    attendanceForReception:   { type: Boolean, default: true },
+    attendanceForCounselling: { type: Boolean, default: true },
+    receptionForCounselling:  { type: Boolean, default: true }
+  },
+
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin', required: true, index: true }
 }, { timestamps: true });
 

@@ -4,7 +4,8 @@ import { useAuth } from '../context/AuthContext'
 import { useWorkspace } from '../context/WorkspaceContext'
 import {
   ADMIN_LOGIN, ADMIN_HOME, ADMIN_WORKSPACE_DASHBOARD, ADMIN_DASHBOARD, ADMIN_ATTENDANCE,
-  ADMIN_ATTENDANCE_HISTORY, ADMIN_COUNSELLING, ADMIN_COLLEGES, ADMIN_RECEPTION, ADMIN_FORMS
+  ADMIN_ATTENDANCE_HISTORY, ADMIN_COUNSELLING, ADMIN_COLLEGES, ADMIN_RECEPTION, ADMIN_FORMS,
+  ADMIN_WORKFLOW
 } from '../utils/routes'
 import { Logo } from './PublicShell'
 import {
@@ -38,6 +39,7 @@ const NAV_GROUPS = [
   {
     label: 'Configuration',
     items: [
+      { path: ADMIN_WORKFLOW, label: 'Workflow', icon: IconSwitch },
       { path: ADMIN_COLLEGES, label: 'Colleges', icon: IconBuilding },
       { path: ADMIN_FORMS,    label: 'Forms',    icon: IconDocument, prefix: true }
     ]

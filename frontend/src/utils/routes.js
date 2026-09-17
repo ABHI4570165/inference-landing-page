@@ -52,6 +52,7 @@ export const ADMIN_HOME = `${ADMIN_BASE}/home`
 export const ADMIN_WORKSPACE_DASHBOARD = `${ADMIN_BASE}/workspace-dashboard`
 export const ADMIN_DASHBOARD = `${ADMIN_BASE}/dashboard`
 export const ADMIN_COLLEGES = `${ADMIN_BASE}/colleges`
+export const ADMIN_WORKFLOW = `${ADMIN_BASE}/workflow`
 export const ADMIN_ATTENDANCE = `${ADMIN_BASE}/attendance`
 export const ADMIN_ATTENDANCE_HISTORY = `${ADMIN_BASE}/attendance/history`
 export const ADMIN_COUNSELLING = `${ADMIN_BASE}/counselling`

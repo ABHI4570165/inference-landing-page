@@ -15,6 +15,7 @@ import AdminHome from './pages/AdminHome'
 import WorkspaceDashboard from './pages/WorkspaceDashboard'
 import AdminDashboard from './pages/AdminDashboard'
 import AdminColleges from './pages/AdminColleges'
+import AdminWorkflow from './pages/AdminWorkflow'
 import AdminAttendance from './pages/AdminAttendance'
 import AdminAttendanceHistory from './pages/AdminAttendanceHistory'
 import AdminCounselling from './pages/AdminCounselling'
@@ -39,6 +40,7 @@ import {
 } from './utils/routes'
 import {
   ADMIN_BASE, ADMIN_LOGIN, ADMIN_HOME, ADMIN_WORKSPACE_DASHBOARD, ADMIN_DASHBOARD, ADMIN_COLLEGES,
+  ADMIN_WORKFLOW,
   ADMIN_ATTENDANCE, ADMIN_ATTENDANCE_HISTORY, ADMIN_COUNSELLING,
   ADMIN_COUNSELLING_RESPONSES, ADMIN_COUNSELLING_DETAIL, ADMIN_COUNSELLING_QUESTIONS, ADMIN_RECEPTION,
   ADMIN_FORMS, ADMIN_FORM_EDIT, ADMIN_FORM_RESPONSES
@@ -90,6 +92,7 @@ export default function App() {
         {/* Level 2 — everything below requires an active workspace selection */}
         <Route path={ADMIN_WORKSPACE_DASHBOARD} element={<ProtectedRoute><RequireWorkspace><WorkspaceDashboard /></RequireWorkspace></ProtectedRoute>} />
         <Route path={ADMIN_DASHBOARD} element={<ProtectedRoute><RequireWorkspace><AdminDashboard /></RequireWorkspace></ProtectedRoute>} />
+        <Route path={ADMIN_WORKFLOW} element={<ProtectedRoute><RequireWorkspace><AdminWorkflow /></RequireWorkspace></ProtectedRoute>} />
         <Route path={ADMIN_COLLEGES} element={<ProtectedRoute><RequireWorkspace><AdminColleges /></RequireWorkspace></ProtectedRoute>} />
         <Route path={ADMIN_ATTENDANCE} element={<ProtectedRoute><RequireWorkspace><AdminAttendance /></RequireWorkspace></ProtectedRoute>} />
         <Route path={ADMIN_ATTENDANCE_HISTORY} element={<ProtectedRoute><RequireWorkspace><AdminAttendanceHistory /></RequireWorkspace></ProtectedRoute>} />
