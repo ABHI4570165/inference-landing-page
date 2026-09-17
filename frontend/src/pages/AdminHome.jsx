@@ -20,7 +20,7 @@ function greeting() {
 }
 
 const CURRENT_YEAR = new Date().getFullYear()
-const emptyForm = { companyName: '', recruitmentDriveName: '', year: String(CURRENT_YEAR), description: '', status: 'Active' }
+const emptyForm = { companyName: '', recruitmentDriveName: '', year: String(CURRENT_YEAR), description: '', status: 'Active', specialisation: '', careerPaths: '' }
 
 function initialsOf(name) {
   return (name || '')
@@ -39,7 +39,9 @@ function WorkspaceFormModal({ editing, onClose, onSaved }) {
     recruitmentDriveName: editing.recruitmentDriveName,
     year: String(editing.year),
     description: editing.description || '',
-    status: editing.status
+    status: editing.status,
+    specialisation: editing.specialisation || '',
+    careerPaths: (editing.careerPaths || []).join(', ')
   } : emptyForm)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -101,6 +103,25 @@ function WorkspaceFormModal({ editing, onClose, onSaved }) {
                 <option value="Archived">Archived</option>
               </select>
             </div>
+          </div>
+          <div>
+            <label className="form-label">Field / Specialisation (Optional)</label>
+            <input className="form-input" value={form.specialisation}
+              onChange={e => setForm(p => ({ ...p, specialisation: e.target.value }))}
+              placeholder="e.g. Accounts & Finance" />
+            <p className="text-xs text-gray-500 mt-1">
+              What this drive hires for. The counselling report talks about this field.
+              Leave blank and the report works from the candidate's answers alone.
+            </p>
+          </div>
+          <div>
+            <label className="form-label">Career Paths (Optional)</label>
+            <input className="form-input" value={form.careerPaths}
+              onChange={e => setForm(p => ({ ...p, careerPaths: e.target.value }))}
+              placeholder="e.g. Accounts Executive, GST / Tax Associate, Audit Assistant" />
+            <p className="text-xs text-gray-500 mt-1">
+              Comma separated. The report recommends career fits from this list.
+            </p>
           </div>
           <div>
             <label className="form-label">Description (Optional)</label>

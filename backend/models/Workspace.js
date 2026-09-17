@@ -33,6 +33,20 @@ const workspaceSchema = new mongoose.Schema({
   receptionToken:   { type: String, unique: true, sparse: true, index: true },
   counsellingToken: { type: String, unique: true, sparse: true, index: true },
 
+  // What this drive is hiring and counselling FOR. The counselling report used
+  // to assume every drive was recruiting Junior Data Analysts / Data Engineers,
+  // because that was hard-coded into the AI prompt and the fallback engine — so
+  // an accounts candidate was told to learn Pandas. The report now takes its
+  // domain from here instead.
+  //
+  // Blank is allowed and safe: the report then stays domain-neutral and speaks
+  // only from the candidate's own answers, rather than inventing a field.
+  specialisation: { type: String, trim: true, default: '', maxLength: 120 },
+
+  // Career paths that are plausible for THIS drive, offered to the report as
+  // examples. Empty means the report infers paths purely from the answers.
+  careerPaths: { type: [String], default: [] },
+
   // Which links in the candidate journey this drive actually enforces.
   //
   //     Registration -> Attendance -> Reception -> Counselling

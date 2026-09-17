@@ -90,6 +90,16 @@ router.get('/', auth, async (req, res) => {
   }
 });
 
+// The roles this drive recruits for, which the counselling report offers as
+// career fits. Accepts either a comma-separated line from the form or a real
+// array, and drops blanks and duplicates so the report never suggests the same
+// path twice or an empty one.
+function parseCareerPaths(value) {
+  const list = Array.isArray(value) ? value : String(value || '').split(',');
+  const cleaned = list.map(v => String(v || '').trim()).filter(Boolean);
+  return [...new Set(cleaned)].slice(0, 12);
+}
+
 // ── POST /api/workspaces — create a new workspace ───────────────────────────
 router.post('/', auth, async (req, res) => {
   try {
@@ -111,6 +121,11 @@ router.post('/', auth, async (req, res) => {
 
     const workspace = await Workspace.create({
       companyName, recruitmentDriveName, year, description, status,
+      // What this drive recruits FOR. Left blank the counselling report stays
+      // neutral and works from the candidate's answers alone, which is the safe
+      // default — it used to assume every drive was hiring data roles.
+      specialisation: String(req.body.specialisation || '').trim(),
+      careerPaths: parseCareerPaths(req.body.careerPaths),
       workflow,
       receptionToken: generatePublicToken('rcp'),
       counsellingToken: generatePublicToken('cns'),
@@ -147,6 +162,13 @@ router.put('/:id', auth, async (req, res) => {
     const allowed = ['companyName', 'recruitmentDriveName', 'year', 'description', 'status'];
     const update = {};
     allowed.forEach(k => { if (req.body[k] !== undefined) update[k] = req.body[k] });
+
+    if (req.body.specialisation !== undefined) {
+      update.specialisation = String(req.body.specialisation || '').trim();
+    }
+    if (req.body.careerPaths !== undefined) {
+      update.careerPaths = parseCareerPaths(req.body.careerPaths);
+    }
 
     // The workflow is written key by key as booleans rather than taken wholesale,
     // so a request cannot introduce an unknown link or store a non-boolean that

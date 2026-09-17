@@ -42,7 +42,7 @@ function estimateTokens(text) {
   return Math.max(1, Math.ceil(text.length / 4));
 }
 
-function buildReportPrompt(response, questions, baseScores, totalGot, totalMax) {
+function buildReportPrompt(response, questions, baseScores, totalGot, totalMax, workspace) {
   const answerData = response.answers.map(answer => {
     const question = questions.find(q => String(q._id) === String(answer.question));
     return {
@@ -67,11 +67,11 @@ function buildReportPrompt(response, questions, baseScores, totalGot, totalMax) 
     answers: answerData
   };
 
-  return REPORT_PROMPT_INSTRUCTIONS +
+  return buildReportInstructions(workspace, questions) +
     `\n\nStudent metadata and answers:\n${JSON.stringify(condensed, null, 2)}`;
 }
 
-function buildCompressedReportPrompt(response, questions, baseScores, totalGot, totalMax) {
+function buildCompressedReportPrompt(response, questions, baseScores, totalGot, totalMax, workspace) {
   const condensed = {
     student: {
       id: String(response.student || 'unknown'),
@@ -96,7 +96,7 @@ function buildCompressedReportPrompt(response, questions, baseScores, totalGot, 
     })
   };
 
-  return REPORT_PROMPT_INSTRUCTIONS +
+  return buildReportInstructions(workspace, questions) +
     `\n\nStudent metadata:\n${JSON.stringify(condensed.student, null, 2)}\n\n` +
     `Baseline scores:\n${JSON.stringify(condensed.baselineScores, null, 2)}\n\n` +
     `Questionnaire answer summary (JSON):\n${JSON.stringify(condensed.answers, null, 2)}`;
@@ -164,10 +164,10 @@ function releaseReportLock(responseId) {
 // Same prompt/JSON-shape as Hugging Face, so the two AI sources are
 // interchangeable from generateReport's point of view. Only reachable when
 // running the backend on the same machine as Ollama (e.g. local dev).
-async function generateOllamaReport(response, questions, baseScores, totalGot, totalMax) {
-  let prompt = buildReportPrompt(response, questions, baseScores, totalGot, totalMax);
+async function generateOllamaReport(response, questions, baseScores, totalGot, totalMax, workspace) {
+  let prompt = buildReportPrompt(response, questions, baseScores, totalGot, totalMax, workspace);
   if (shouldCompressPrompt(prompt)) {
-    prompt = buildCompressedReportPrompt(response, questions, baseScores, totalGot, totalMax);
+    prompt = buildCompressedReportPrompt(response, questions, baseScores, totalGot, totalMax, workspace);
   }
 
   let lastError = null;
@@ -194,10 +194,10 @@ function stripJsonFences(text) {
   return fenced ? fenced[1] : trimmed;
 }
 
-async function generateHuggingFaceReport(response, questions, baseScores, totalGot, totalMax) {
-  let prompt = buildReportPrompt(response, questions, baseScores, totalGot, totalMax);
+async function generateHuggingFaceReport(response, questions, baseScores, totalGot, totalMax, workspace) {
+  let prompt = buildReportPrompt(response, questions, baseScores, totalGot, totalMax, workspace);
   if (shouldCompressPrompt(prompt)) {
-    prompt = buildCompressedReportPrompt(response, questions, baseScores, totalGot, totalMax);
+    prompt = buildCompressedReportPrompt(response, questions, baseScores, totalGot, totalMax, workspace);
   }
 
   let lastError = null;
@@ -265,9 +265,46 @@ function computeMetricScores(response, questions) {
 // to be explicit about length/count/shape because these models (Ollama's
 // llama3.1:8b, Hugging Face's hosted Llama) take instructions literally and
 // go terse without them.
-const REPORT_PROMPT_INSTRUCTIONS = `You are an experienced career counsellor at an engineering training academy in India, reviewing a student's self-assessment questionnaire for Junior Data Analyst / Junior Data Engineer roles.
+// Describes WHAT THIS DRIVE IS FOR, from the workspace. Previously the prompt
+// asserted "Junior Data Analyst / Junior Data Engineer roles" for every drive,
+// so an Accounts & Finance candidate was counselled as though they had applied
+// for a data job — recommended Python, Pandas and a Google Data Analytics
+// certificate. The domain now comes from the workspace; when it is blank the
+// prompt stays neutral and works from the answers alone rather than guessing.
+function domainContext(workspace) {
+  const specialisation = (workspace && workspace.specialisation || '').trim();
+  const paths = (workspace && workspace.careerPaths || []).filter(Boolean);
 
-Write a professional counselling report. Do NOT simply repeat the answers back — infer the student's personality, motivation, readiness and gaps from the pattern of their responses. Cross-check self-ratings (Section H) against actual technical exposure and effort (Sections C and D): if self-rating is high but exposure/effort is low, note that the self-assessment appears inflated. High interest with low effort means "interested in words only". Preparation for higher studies or government exams is an attrition risk. Write like an experienced human counsellor: warm, professional, specific, honest — never generic filler.
+  const role = specialisation
+    ? `reviewing a student's self-assessment questionnaire for ${specialisation} roles`
+    : `reviewing a student's self-assessment questionnaire for the roles this recruitment drive is hiring for`;
+
+  const careerFitHint = paths.length
+    ? `recommended paths chosen from what suits this student — this drive typically recruits for: ${paths.join(', ')}`
+    : `recommended paths inferred from the student's own answers, interests and demonstrated skills — do NOT assume a field the answers do not support`;
+
+  return { role, careerFitHint, specialisation };
+}
+
+function buildReportInstructions(workspace, questions) {
+  const { role, careerFitHint } = domainContext(workspace);
+
+  // The practical-experience section used to name Q34 and Q35 directly. Those
+  // codes exist only in the original questionnaire, so for any other drive the
+  // model was told to ground a paragraph in questions that were not there.
+  // Find whichever questions actually ask about a project or an internship.
+  const find = re => (questions || []).filter(q => re.test(q.text || '')).map(q => q.code);
+  const projectCodes = find(/project/i);
+  const internshipCodes = find(/internship|work experience/i);
+  const experienceCodes = [...new Set([...projectCodes, ...internshipCodes])];
+
+  const practicalExperience = experienceCodes.length
+    ? `- practicalExperience: a focused paragraph (100-200 words) about the student's hands-on experience, grounded ONLY in their answers to ${experienceCodes.join(', ')} (their project and internship questions). Cover what they actually built or did and what they took from it. If those were left blank, say so plainly (e.g. "No internship completed yet") instead of inventing details.`
+    : `- practicalExperience: a focused paragraph (100-200 words) about the student's hands-on experience, grounded ONLY in whatever the answers say about projects, internships or real work. If the questionnaire does not cover that, say so plainly in one sentence instead of inventing details.`;
+
+  return `You are an experienced career counsellor at a training academy in India, ${role}.
+
+Write a professional counselling report. Do NOT simply repeat the answers back — infer the student's personality, motivation, readiness and gaps from the pattern of their responses. Cross-check the student's self-ratings against the exposure and effort their other answers actually demonstrate: if self-rating is high but exposure/effort is low, note that the self-assessment appears inflated. High interest with low effort means "interested in words only". Preparation for higher studies or government exams is an attrition risk. Write like an experienced human counsellor: warm, professional, specific, honest — never generic filler.
 
 Produce a JSON object only, with exactly these keys and nothing else:
 
@@ -280,15 +317,16 @@ Produce a JSON object only, with exactly these keys and nothing else:
 - strengths: array of 6 to 10 short phrases
 - weaknesses: array of 4 to 8 short phrases covering skill gaps, communication, roadmap, confidence, coding, projects, interview readiness as applicable
 - behaviourAnalysis: object with exactly these string keys, one sentence each — learningStyle, problemSolving, decisionMaking, confidence, riskTaking, leadership, teamWork, communication, adaptability
-- careerFit: array of 2 to 4 objects {path, reason} — recommended paths (e.g. Software Development, Data Analytics, Data Engineering, Data Science, Cyber Security, Cloud, Government, Higher Studies, Entrepreneurship), each reason a one-to-two sentence explanation grounded in the answers
+- careerFit: array of 2 to 4 objects {path, reason} — ${careerFitHint}; each reason a one-to-two sentence explanation grounded in the answers
 - trainingRecommendation: object with courses, skills, certifications, projects, softSkills, interviewPrep (each an array of 2-5 short strings) and timeline (a one-sentence string)
 - recommendedCareerPath (string, one sentence)
 - recommendedTrainingPlan (string, one sentence)
-- practicalExperience: a focused paragraph (100-200 words) specifically about the student's hands-on experience, grounded ONLY in their answers to question Q34 ("Describe your college project") and Q35 ("Where did you do your final year internship? Was it paid, stipend-based, or unpaid? What did you learn from it?"). Cover: what the project does and their role in it, and where/how the internship was structured (paid/stipend/unpaid) and what they took away from it. If either Q34 or Q35 was left blank, say so plainly (e.g. "No internship completed yet") instead of inventing details.
+${practicalExperience}
 - counsellorRecommendation: a single flowing paragraph of 300 to 500 words, no bullet points and no headings. Reading only this paragraph, a counsellor must understand who this student is, what they need, where they struggle, what motivates them, and how to guide them in the conversation.
 - scores: object with integer 0-100 values for careerClarity, confidence, technicalReadiness, learningAttitude, placementReadiness, communicationReadiness, motivation, riskLevel, overall. You are given rubric-derived baseline scores below; adjust them only where the qualitative picture justifies it (stay within about 15 points of each baseline). riskLevel is a RISK (higher = more likely to drop off / not join).
 
 Do not include markdown, code fences, or any explanation outside the JSON object. Output valid JSON only.`;
+}
 
 function buildTranscript(response, questions) {
   const byId = new Map(questions.map(q => [String(q._id), q]));
@@ -338,6 +376,11 @@ async function generateReport(response) {
     // Scoped to this response's own workspace — each drive has its own
     // questionnaire, and Q-codes repeat across them.
     const questions = await CounsellingQuestion.find({ workspace: response.workspace }).lean();
+    // The drive's own domain — what it recruits for — so the report speaks about
+    // the right field instead of assuming data roles.
+    const Workspace = require('../models/Workspace');
+    const workspace = await Workspace.findById(response.workspace)
+      .select('specialisation careerPaths companyName').lean();
     const { scores: baseScores, totalGot, totalMax } = computeMetricScores(response, questions);
 
     // The in-process lock above already prevents two concurrent runs here, and
@@ -418,7 +461,7 @@ async function generateReport(response) {
     // own rubric scores. Used whichever AI path (Hugging Face, Ollama) was
     // attempted, so a report always gets produced.
     function applyLocalFallback(fallbackReason) {
-      const localData = buildFinalReport(response, questions, baseScores, fallbackReason);
+      const localData = buildFinalReport(response, questions, baseScores, fallbackReason, workspace);
       const scores = localData.scores || baseScores;
       report.set({
         status: 'completed',
@@ -457,8 +500,8 @@ async function generateReport(response) {
 
     if (provider === 'ollama' || provider === 'huggingface') {
       const runner = provider === 'ollama'
-        ? () => generateOllamaReport(response, questions, baseScores, totalGot, totalMax)
-        : () => generateHuggingFaceReport(response, questions, baseScores, totalGot, totalMax);
+        ? () => generateOllamaReport(response, questions, baseScores, totalGot, totalMax, workspace)
+        : () => generateHuggingFaceReport(response, questions, baseScores, totalGot, totalMax, workspace);
       const label = provider === 'ollama' ? 'Ollama (local)' : 'Hugging Face';
       const aiModel = provider === 'ollama' ? OLLAMA_MODEL : HF_MODEL;
       const reportSource = provider === 'ollama' ? 'Ollama' : 'Hugging Face';
@@ -479,7 +522,7 @@ async function generateReport(response) {
 
     // Production default (AI_PROVIDER unset): Hugging Face -> Ollama -> rule-engine.
     try {
-      const hfData = await generateHuggingFaceReport(response, questions, baseScores, totalGot, totalMax);
+      const hfData = await generateHuggingFaceReport(response, questions, baseScores, totalGot, totalMax, workspace);
       applyAiData('Hugging Face', 'Hugging Face', HF_MODEL, hfData);
       await report.save();
       return report;
@@ -487,7 +530,7 @@ async function generateReport(response) {
       console.error(`[AI Report] Hugging Face generation failed for response ${response._id}:`, hfErr.message);
 
       try {
-        const ollamaData = await generateOllamaReport(response, questions, baseScores, totalGot, totalMax);
+        const ollamaData = await generateOllamaReport(response, questions, baseScores, totalGot, totalMax, workspace);
         applyAiData('Ollama', 'Ollama (local)', OLLAMA_MODEL, ollamaData);
         report.set({ fallbackReason: `Hugging Face unavailable (${hfErr.message}); used local Ollama model instead.` });
         await report.save();

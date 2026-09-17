@@ -75,13 +75,32 @@ function tierCommunication(score) {
 }
 
 // Q6 — "Which role are you MORE interested in?" — direct single-select lookup
-function inferCareerPath(response) {
-  const sel = (findAnswer(response, 'Q6')?.selected || []).join(' ').toLowerCase();
-  if (sel.includes('data analyst') && sel.includes('data engineer')) return 'Data Analyst & Data Engineer';
-  if (sel.includes('data analyst')) return 'Data Analyst';
-  if (sel.includes('data engineer')) return 'Data Engineer';
-  if (sel.includes('both')) return 'Data Analyst & Data Engineer';
-  return 'Data Analytics / Data Engineering (still exploring)';
+// What this student is heading towards.
+//
+// This used to read one hard-coded question code and, failing that, return a
+// Data path regardless — so an Accounts & Finance candidate came out as "Data
+// Analytics / Data Engineering (still exploring)" and was then recommended
+// Pandas and a Google Data Analytics certificate.
+//
+// It now reads the drive's own career paths (Workspace.careerPaths) out of the
+// student's ACTUAL answers, whatever the question codes happen to be, and falls
+// back to the drive's specialisation rather than to a field nobody mentioned.
+function inferCareerPath(response, workspace) {
+  const paths = (workspace && workspace.careerPaths || []).filter(Boolean);
+  const specialisation = (workspace && workspace.specialisation || '').trim();
+
+  // Everything the student selected or typed, across every answer.
+  const said = (response.answers || [])
+    .flatMap(a => [...(a.selected || []), a.otherText || ''])
+    .join(' ')
+    .toLowerCase();
+
+  const matched = paths.filter(p => said.includes(p.toLowerCase()));
+  if (matched.length > 1) return matched.slice(0, 2).join(' & ');
+  if (matched.length === 1) return matched[0];
+
+  if (specialisation) return `${specialisation} (still exploring)`;
+  return 'still exploring';
 }
 
 // Q17 — "Have you done any internship or training in a data-related area?" —
@@ -170,11 +189,18 @@ function buildTrainingRecommendation(data) {
     skills.push('time management', 'analytical reasoning', 'written communication');
     projects.push('mock test series', 'previous-year paper analysis');
     certifications.push('SSC/BANK exam preparatory course');
+  } else if (data.specialisation) {
+    // No domain branch matched, but the drive told us what it recruits for, so
+    // speak about that rather than defaulting to a programming track.
+    courses.push(`${data.specialisation} fundamentals`, 'practical, project-based learning');
+    skills.push(`core ${data.specialisation} tools`, 'accuracy and attention to detail', 'workplace communication');
+    projects.push(`a real ${data.specialisation} task done end to end`, 'a small team project');
   } else {
-    courses.push('Programming fundamentals', 'data structures & algorithms', 'project-based learning');
-    skills.push('coding fluency', 'system design basics', 'debugging discipline');
-    projects.push('web application from scratch', 'small team project');
-    certifications.push('Google IT Automation with Python');
+    // Nothing known about the field: keep the advice about HOW to learn rather
+    // than inventing a subject the answers never mentioned.
+    courses.push('fundamentals of their chosen field', 'project-based learning');
+    skills.push('practical application of what they have studied', 'attention to detail', 'workplace communication');
+    projects.push('one real task done end to end', 'a small team project');
   }
 
   if (data.communication !== 'good') {
@@ -213,9 +239,17 @@ function buildCareerFit(data) {
   } else if (data.careerPath.includes('Government')) {
     recommendations.push({ path: 'Government Services', reason: 'The student appears motivated by stable, exam-based career paths with long-term goals.' });
     recommendations.push({ path: 'Competitive Exam Preparation', reason: 'A focused study plan will be key to converting preparation into results.' });
+  } else if ((data.careerPaths || []).length) {
+    // Offer this drive's own paths instead of a generic software ladder.
+    data.careerPaths.slice(0, 2).forEach(path => {
+      recommendations.push({
+        path,
+        reason: `This drive recruits for ${path}, and the student's answers show enough interest and effort to start there with training.`
+      });
+    });
   } else {
-    recommendations.push({ path: 'Software Development', reason: 'A broad technical career path offers many entry points and aligns with their overall interest in technology.' });
-    recommendations.push({ path: 'Technical Support / QA', reason: 'These roles can provide practical exposure while strengthening problem solving and communication.' });
+    recommendations.push({ path: 'Entry-level role in their own field of study', reason: 'Their answers point to a practical starting role where they can build experience while learning on the job.' });
+    recommendations.push({ path: 'Structured training before placement', reason: 'A short, focused training block would close the gaps their answers reveal before they face interviews.' });
   }
   return recommendations.slice(0, 3);
 }
@@ -279,11 +313,11 @@ function buildBehaviourAnalysis(data) {
   };
 }
 
-function buildFinalReport(response, questions, baseScores, fallbackReason) {
+function buildFinalReport(response, questions, baseScores, fallbackReason, workspace) {
   // Every value below is derived from this student's own answers/points —
   // never from a generic keyword scan of the combined answer text — so two
   // students who answer differently always get a different report.
-  const careerPath = inferCareerPath(response);
+  const careerPath = inferCareerPath(response, workspace);
   const confidence = tierHML(baseScores.confidence);
   const codingLevel = tierCoding(baseScores.technicalReadiness);
   const roadmapAwareness = tierHML(baseScores.careerClarity);
@@ -294,6 +328,10 @@ function buildFinalReport(response, questions, baseScores, fallbackReason) {
 
   const data = {
     careerPath,
+    // Carried so the recommendation builders can speak about the right field
+    // instead of falling back to a hard-coded one.
+    specialisation: (workspace && workspace.specialisation || '').trim(),
+    careerPaths: (workspace && workspace.careerPaths || []).filter(Boolean),
     confidence,
     codingLevel,
     roadmapAwareness,
