@@ -11,6 +11,16 @@ import { PublicFooter, Logo } from '../components/PublicShell'
 const TOKEN_KEY = 'counselling_token'
 const OTHER = '__other__'
 
+// A question hidden by branching: its controlling yes/no question was answered
+// "No" (or not answered yet). The server applies the same rule when it decides
+// which questions are required, so the two must agree — if they drift, a student
+// is told to answer something that is not on screen.
+function isSkipped(q, answers) {
+  if (!q.skipIfNo) return false
+  const controller = answers[q.skipIfNo]
+  return !controller || (controller.selected || [])[0] !== 'Yes'
+}
+
 const authHeaders = token => ({ headers: { Authorization: `Bearer ${token}` } })
 
 export default function CounsellingForm() {
@@ -45,8 +55,11 @@ export default function CounsellingForm() {
   // ── helpers ──
   const requiredCodes = useMemo(() => {
     if (!form) return []
-    return form.sections.flatMap(s => s.questions.filter(q => q.required).map(q => q.code))
-  }, [form])
+    return form.sections
+      .flatMap(s => s.questions)
+      .filter(q => q.required && !isSkipped(q, answers))
+      .map(q => q.code)
+  }, [form, answers])
 
   const isAnswered = useCallback(a => a && (a.selected?.length > 0 || (a.otherText || '').trim().length > 0), [])
 
@@ -356,7 +369,7 @@ export default function CounsellingForm() {
 
               {open && (
                 <div className="px-5 pb-5 space-y-6 border-t border-gray-100 pt-4">
-                  {section.questions.map(q => (
+                  {section.questions.filter(q => !isSkipped(q, answers)).map(q => (
                     <Question
                       key={q.code} q={q}
                       answer={answers[q.code] || { selected: [], otherText: '' }}
@@ -398,6 +411,47 @@ function Question({ q, answer, invalid, onRadio, onCheckbox, onText }) {
         <span className="text-gray-400 mr-1.5">{q.code}.</span>{q.text}
         {q.required && <span className="text-red-400 ml-1">*</span>}
       </p>
+
+      {/* A 1-5 self-rating. Stored exactly like a radio (the option label is
+          the answer), but laid out as one compact row so five of them read as a
+          grid rather than twenty-five stacked choices. */}
+      {q.type === 'rating' && (
+        <div className="flex gap-2">
+          {q.options.map(label => {
+            const checked = answer.selected.includes(label)
+            return (
+              <label key={label}
+                className={`flex-1 text-center py-2.5 rounded-lg border cursor-pointer transition text-sm font-medium ${
+                  checked ? 'border-brand-500 bg-brand-50 text-brand-800' : 'border-gray-200 hover:border-brand-300 text-gray-600'
+                }`}>
+                <input type="radio" name={q.code} checked={checked} className="sr-only"
+                  onChange={() => onRadio(label)} />
+                {label}
+              </label>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Yes / No as two large tap targets - these are branching questions and
+          are answered on a phone. */}
+      {q.type === 'yesno' && (
+        <div className="flex gap-2.5">
+          {q.options.map(label => {
+            const checked = answer.selected.includes(label)
+            return (
+              <label key={label}
+                className={`flex-1 text-center py-3 rounded-lg border cursor-pointer transition text-sm font-medium ${
+                  checked ? 'border-brand-500 bg-brand-50 text-brand-800' : 'border-gray-200 hover:border-brand-300 text-gray-600'
+                }`}>
+                <input type="radio" name={q.code} checked={checked} className="sr-only"
+                  onChange={() => onRadio(label)} />
+                {label}
+              </label>
+            )
+          })}
+        </div>
+      )}
 
       {(q.type === 'radio' || q.type === 'checkbox') && (
         <div className="space-y-2">

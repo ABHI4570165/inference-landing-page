@@ -4,6 +4,7 @@ const Student = require('../models/Student');
 const Attendance = require('../models/Attendance');
 const AttendanceSession = require('../models/AttendanceSession');
 const CounsellingQuestion = require('../models/CounsellingQuestion');
+const { computeScoring, isAccountsFinanceResponse } = require('../services/accountsFinanceScoring');
 const CounsellingResponse = require('../models/CounsellingResponse');
 const ReceptionCheckin = require('../models/ReceptionCheckin');
 const Workspace = require('../models/Workspace');
@@ -20,28 +21,69 @@ function todayIST() {
 const clean = v => (typeof v === 'string' ? v.trim() : '');
 
 // Strip points before anything leaves the API — students never see scores
-function publicQuestion(q) {
+// Everything a student's browser is allowed to see about a question. Option
+// POINTS are deliberately absent, and so is anything that could reveal a
+// correct answer - Section B is marked server-side from
+// config/accountsFinanceAnswerKey.js, which nothing here can reach.
+function publicQuestion(q, optionOrder) {
   return {
     id: q._id,
     code: q.code,
     text: q.text,
     type: q.type,
-    options: q.options.map(o => o.label),
+    options: optionOrder || q.options.map(o => o.label),
     allowOther: q.allowOther,
     required: q.required,
     sectionKey: q.sectionKey,
     sectionTitle: q.sectionTitle,
-    sectionNote: q.sectionNote
+    sectionNote: q.sectionNote,
+    // Optional behaviour; absent/zero for every questionnaire predating it.
+    maxSelect: q.maxSelect || 0,
+    skipIfNo: q.skipIfNo || '',
+    clearsOthers: q.clearsOthers || '',
+    maxLength: q.maxLength || 0,
+    prefill: q.prefill || ''
   };
+}
+
+// Deterministic per-student shuffle. Seeded by the response id so a student
+// sees the SAME order every time they resume - a fresh random order on each
+// load would move the options under a half-finished answer.
+function seededShuffle(list, seed) {
+  // FNV-1a for the seed and mulberry32 for the stream. A weaker pair (a *31
+  // hash with a plain LCG) maps consecutive ObjectIds - which differ only in
+  // their last characters - onto the same permutation surprisingly often,
+  // because a 4-option shuffle only ever consumes the low two bits.
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < seed.length; i++) {
+    h ^= seed.charCodeAt(i);
+    h = Math.imul(h, 16777619) >>> 0;
+  }
+  const next = () => {
+    h = (h + 0x6D2B79F5) >>> 0;
+    let t = Math.imul(h ^ (h >>> 15), 1 | h);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+
+  const out = [...list];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(next() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
 }
 
 // Group active questions into ordered sections
 // The questionnaire belongs to ONE workspace — a jewellery drive and a sugar
 // drive ask different things — so the student is always served the question set
 // of the drive their response belongs to.
-async function loadForm(workspaceId) {
-  const questions = await CounsellingQuestion.find({ active: true, workspace: workspaceId })
-    .sort({ order: 1 }).lean();
+async function loadForm(workspaceId, responseId = '') {
+  // counsellorOnly questions (Section G) are filtered out in the QUERY, so they
+  // can never reach a student even if the renderer changed later.
+  const questions = await CounsellingQuestion.find({
+    active: true, workspace: workspaceId, counsellorOnly: { $ne: true }
+  }).sort({ order: 1 }).lean();
   const sections = [];
   const byKey = new Map();
   for (const q of questions) {
@@ -50,7 +92,10 @@ async function loadForm(workspaceId) {
       byKey.set(q.sectionKey, s);
       sections.push(s);
     }
-    byKey.get(q.sectionKey).questions.push(publicQuestion(q));
+    const order = q.shuffleOptions && responseId
+      ? seededShuffle(q.options.map(o => o.label), String(responseId) + q.code)
+      : null;
+    byKey.get(q.sectionKey).questions.push(publicQuestion(q, order));
   }
   return { sections, totalQuestions: questions.length };
 }
@@ -194,7 +239,7 @@ router.get('/form', counsellingAuth, async (req, res) => {
     const response = await CounsellingResponse.findById(req.counselling.responseId)
       .select('workspace').lean();
     if (!response) return res.status(404).json({ message: 'Session not found' });
-    res.json(await loadForm(response.workspace));
+    res.json(await loadForm(response.workspace, response._id));
   } catch (err) {
     console.error('[GET /api/counselling/form]', err);
     res.status(500).json({ message: 'Server error' });
@@ -246,17 +291,37 @@ async function buildAnswers(rawAnswers, workspaceId) {
       : [];
 
     let points = 0;
-    if (q.type === 'radio' || q.type === 'checkbox') {
+
+    // A question is a CHOICE question when it has options - derived from the
+    // data, not from a hard-coded list of type names.
+    //
+    // This matters: the previous version listed the types it knew
+    // ('radio'/'checkbox') and sent everything else down the free-text branch,
+    // which sets selected = []. Adding the 'rating' and 'yesno' types therefore
+    // made the server SILENTLY DISCARD those answers and then report the
+    // questions as unanswered - a student who had filled the whole form was
+    // told seven fields were still required, with no way to satisfy them.
+    // Deriving it from the options means a future type can never do that again.
+    const isChoice = Array.isArray(q.options) && q.options.length > 0;
+    // Only an explicit checkbox takes more than one answer.
+    const isMulti = q.type === 'checkbox';
+
+    if (isChoice) {
       const validLabels = new Set(q.options.map(o => o.label));
       const OTHER = '__other__';
       selected = selected.filter(s => validLabels.has(s) || (q.allowOther && s === OTHER));
-      if (q.type === 'radio' && selected.length > 1) selected = selected.slice(0, 1);
+      if (!isMulti && selected.length > 1) selected = selected.slice(0, 1);
+      // "None" (or whichever label clearsOthers names) wins alone.
+      if (q.clearsOthers && selected.includes(q.clearsOthers)) selected = [q.clearsOthers];
+      // Cap a multi-select server-side; the browser is never trusted for this.
+      if (q.maxSelect > 0 && selected.length > q.maxSelect) selected = selected.slice(0, q.maxSelect);
       const pointsByLabel = new Map(q.options.map(o => [o.label, o.points || 0]));
       points = selected.reduce((sum, s) => sum + (pointsByLabel.get(s) || 0), 0);
     } else {
       // free-text question — answer lives in otherText
       selected = [];
     }
+    const cap = q.maxLength > 0 ? q.maxLength : 2000;
 
     const isAnswered = selected.length > 0 || otherText.length > 0;
     if (!isAnswered) continue;
@@ -268,13 +333,23 @@ async function buildAnswers(rawAnswers, workspaceId) {
       sectionKey: q.sectionKey,
       type: q.type,
       selected,
-      otherText,
+      otherText: otherText.slice(0, cap),
       points
     });
   }
 
+  // Branching: when the controlling yes/no question was answered "No", its
+  // dependent questions are not shown and therefore are not required. Without
+  // this a student who skipped the internship section could never submit.
+  const answerByCode = new Map(answers.map(a => [a.code, a]));
+  const isSkipped = q => {
+    if (!q.skipIfNo) return false;
+    const controller = answerByCode.get(q.skipIfNo);
+    return !controller || (controller.selected || [])[0] !== 'Yes';
+  };
+
   // completion = answered required questions / total required questions
-  const required = questions.filter(q => q.required);
+  const required = questions.filter(q => q.required && !isSkipped(q));
   const answeredRequired = required.filter(q => seen.has(q.code) &&
     answers.some(a => a.code === q.code)).length;
   const completionPercent = required.length
@@ -311,6 +386,8 @@ router.put('/autosave', counsellingAuth, async (req, res) => {
     }
 
     const { answers, completionPercent, totalScore, maxScore } = await buildAnswers(req.body.answers, response.workspace);
+    // First autosave is the closest thing to "when the student started".
+    if (!response.startedAt) response.startedAt = response.createdAt || new Date();
     response.set({ answers, completionPercent, totalScore, maxScore, lastSavedAt: new Date() });
     await response.save();
 
@@ -354,12 +431,25 @@ router.post('/submit', counsellingAuth, async (req, res) => {
       });
     }
 
-    response.set({
+    const submittedAt = new Date();
+    const startedAt = response.startedAt || response.createdAt || submittedAt;
+
+    // Deterministic scoring, for questionnaires that support it. Gated on the
+    // answers actually belonging to that questionnaire, so every other drive's
+    // submit path is byte-for-byte what it was.
+    const patch = {
       answers, completionPercent, totalScore, maxScore,
       status: 'submitted',
-      submittedAt: new Date(),
-      lastSavedAt: new Date()
-    });
+      submittedAt,
+      startedAt,
+      durationSeconds: Math.max(0, Math.round((submittedAt - new Date(startedAt)) / 1000)),
+      lastSavedAt: submittedAt
+    };
+    if (isAccountsFinanceResponse(answers)) {
+      patch.scoring = computeScoring(answers, response.counsellorSection);
+    }
+
+    response.set(patch);
     await response.save();
 
     // Reception flow: mark the student's counselling as completed — both the
