@@ -46,7 +46,7 @@ router.get('/summary', auth, requireWorkspace, async (req, res) => {
         { $match: { workspace: ws } },
         { $group: { _id: '$college', count: { $sum: 1 } } },
         { $sort: { count: -1, _id: 1 } },
-        { $limit: 5 },
+        // No $limit — the dashboard shows the top 5 and expands to the full list.
         { $project: { _id: 0, college: '$_id', count: 1 } }
       ]),
       Attendance.aggregate([

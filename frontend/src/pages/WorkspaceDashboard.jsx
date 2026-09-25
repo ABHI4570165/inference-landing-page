@@ -12,6 +12,8 @@ import {
   IconArrowRight, IconCompass
 } from '../components/Icons'
 
+const TOP_COLLEGES_PREVIEW = 5
+
 function greeting() {
   const hour = new Date().getHours()
   if (hour < 12) return 'Good morning'
@@ -48,6 +50,7 @@ export default function WorkspaceDashboard() {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [showAllColleges, setShowAllColleges] = useState(false)
 
   useEffect(() => {
     if (!workspace) { navigate(ADMIN_HOME, { replace: true }); return }
@@ -163,7 +166,14 @@ export default function WorkspaceDashboard() {
                 <div className="p-5">
                   {data.topColleges.length === 0
                     ? <p className="text-[13.5px] text-ink-400 text-center py-6">No applications yet.</p>
-                    : <HBarList data={data.topColleges.map(c => ({ label: c.college, value: c.count }))} />}
+                    : <HBarList data={(showAllColleges ? data.topColleges : data.topColleges.slice(0, TOP_COLLEGES_PREVIEW))
+                        .map(c => ({ label: c.college || 'Not specified', value: c.count }))} />}
+                  {data.topColleges.length > TOP_COLLEGES_PREVIEW && (
+                    <button type="button" onClick={() => setShowAllColleges(v => !v)}
+                      className="mt-4 w-full text-center text-[13px] font-semibold text-brand-700 hover:text-brand-800">
+                      {showAllColleges ? 'Show less' : `View more (${data.topColleges.length - TOP_COLLEGES_PREVIEW} more)`}
+                    </button>
+                  )}
                 </div>
               </div>
             </>
